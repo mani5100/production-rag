@@ -11,7 +11,7 @@ from qdrant_client.http.models import (
     SparseVectorParams,
     VectorParams,
 )
-
+from nxb_chatbot.api.ingest.exceptions import IngestionFailedException
 from nxb_chatbot.core.config import settings
 from nxb_chatbot.core.embeddings import get_dense_embedder
 
@@ -71,24 +71,23 @@ def compute_file_hash(file_path: Path) -> str:
 
 
 def get_existing_hash(client: QdrantClient, file_name: str) -> str | None:
-    """
-    Query Qdrant metadata to find the stored hash for a given file.
-    Returns None if file was never ingested.
-    """
-    results, _ = client.scroll(
-        collection_name=settings.QDRANT_COLLECTION_NAME,
-        scroll_filter={
-            "must": [
-                {
-                    "key": "metadata.file_name",
-                    "match": {"value": file_name},
-                }
-            ]
-        },
-        limit=1,
-        with_payload=True,
-        with_vectors=False,
-    )
+    try:
+        results, _ = client.scroll(
+            collection_name=settings.QDRANT_COLLECTION_NAME,
+            scroll_filter={
+                "must": [
+                    {
+                        "key": "metadata.file_name",
+                        "match": {"value": file_name},
+                    }
+                ]
+            },
+            limit=1,
+            with_payload=True,
+            with_vectors=False,
+        )
+    except Exception as e:
+        raise RuntimeError(f"Qdrant scroll failed for '{file_name}': {e}")
 
     if not results:
         return None
