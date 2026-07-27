@@ -26,6 +26,8 @@ class ChatResponse(BaseModel):
     thread_id: str
     answer: str
     retrieved_docs: list[dict]
+    web_search_used: bool | None = None
+    guardrail_passed: bool | None = None
 
 
 class SessionResponse(BaseModel):

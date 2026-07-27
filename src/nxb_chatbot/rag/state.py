@@ -11,3 +11,5 @@ class ChatState(TypedDict):
     retrieved_docs: list[dict]
     retrieval_filters: dict | None
     standalone_query: str | None
+    guardrail_passed: bool | None
+    web_search_used: bool | None

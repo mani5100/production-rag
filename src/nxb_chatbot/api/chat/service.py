@@ -59,11 +59,13 @@ async def chat(
                 "retrieved_docs": [],
                 "retrieval_filters": request.retrieval_filters,
                 "standalone_query": None,
+                "guardrail_passed": None,
+                "web_search_used": None,
             },
             config=config,
         )
     except Exception as e:
-        logger.error(f"Graph invocation failed: {e}")
+        logger.error(f"Graph invocation failed: {e}", exc_info=True)
         raise GraphInvokeException(str(e))
 
     answer = state["messages"][-1].content
@@ -74,6 +76,8 @@ async def chat(
         thread_id=session.thread_id,
         answer=answer,
         retrieved_docs=retrieved_docs,
+        web_search_used=state.get("web_search_used"),
+        guardrail_passed=state.get("guardrail_passed"),
     )
 
 

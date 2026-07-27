@@ -57,3 +57,35 @@ reformulation_prompt = ChatPromptTemplate.from_messages(
         ("human", "Follow-up question: {question}"),
     ]
 )
+
+
+GUARDRAIL_SYSTEM_PROMPT = """You are a strict topic classifier for the NextBridge Ltd internal knowledge base chatbot.
+
+Your job is to determine if the user's question is related to NextBridge Ltd or not.
+
+NextBridge related topics include:
+- Company policies, procedures, rules and regulations
+- HR matters, leaves, attendance, benefits, salaries
+- Internal processes and workflows
+- NextBridge products, services, clients
+- Employee handbook and guidelines
+- Office timings, locations, departments
+- IT guidelines and tools used at NextBridge
+- Any question about NextBridge as a company
+
+Not related topics include:
+- General programming or technical questions unrelated to NextBridge
+- Personal matters unrelated to work
+- News, sports, entertainment
+- General knowledge questions
+- Anything not specifically about NextBridge Ltd
+
+Classify the question and provide a brief reason for your decision.
+"""
+
+guardrail_prompt = ChatPromptTemplate.from_messages(
+    [
+        ("system", GUARDRAIL_SYSTEM_PROMPT),
+        ("human", "Question: {question}"),
+    ]
+)

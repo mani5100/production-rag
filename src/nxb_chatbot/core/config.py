@@ -36,6 +36,11 @@ class Settings(BaseSettings):
     LANGSMITH_ENDPOINT: str = "https://api.smith.langchain.com"
     LANGSMITH_PROJECT: str = "nxb-chatbot"
 
+    TAVILY_API_KEY: str
+    TAVILY_MAX_RESULTS: int = 2
+    
+    # Guardrail
+    RERANK_SCORE_THRESHOLD: float = 0.3
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
