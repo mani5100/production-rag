@@ -1,3 +1,4 @@
+import os
 import sys
 import asyncio
 import logging
@@ -9,10 +10,17 @@ from nxb_chatbot.api.chat.router import router as chat_router
 from nxb_chatbot.api.ingest.router import router as ingest_router
 
 from nxb_chatbot.core.config import settings
+from nxb_chatbot.core.startup import run_startup
 from nxb_chatbot.rag.graph import get_compiled_graph
 
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+
+os.environ["LANGCHAIN_TRACING_V2"] = settings.LANGSMITH_TRACING
+os.environ["LANGCHAIN_API_KEY"] = settings.LANGSMITH_API_KEY
+os.environ["LANGCHAIN_ENDPOINT"] = settings.LANGSMITH_ENDPOINT
+os.environ["LANGCHAIN_PROJECT"] = settings.LANGSMITH_PROJECT
 
 logging.basicConfig(
     level=logging.INFO,
@@ -26,6 +34,8 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     # Startup
     logger.info("Starting up NXB Chatbot...")
+    
+    await run_startup()
 
     graph, pool = await get_compiled_graph()
     app.state.graph = graph

@@ -35,7 +35,7 @@ dependencies = [
 nxb-chatbot = "nxb_chatbot:main"
 
 [build-system]
-requires = ["uv_build>=0.10.11,<0.11.0"]
+requires = ["uv-build>=0.11.0"]
 build-backend = "uv_build"
 
 [dependency-groups]

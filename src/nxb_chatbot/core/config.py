@@ -29,6 +29,12 @@ class Settings(BaseSettings):
     
     DATABASE_URL: str
     CHECKPOINTER_DATABASE_URL: str
+    
+    # LangSmith
+    LANGSMITH_TRACING: str = "false"
+    LANGSMITH_API_KEY: str = ""
+    LANGSMITH_ENDPOINT: str = "https://api.smith.langchain.com"
+    LANGSMITH_PROJECT: str = "nxb-chatbot"
 
     model_config = SettingsConfigDict(
         env_file=".env",

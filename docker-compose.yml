@@ -2,22 +2,50 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: nxb
-      POSTGRES_PASSWORD: nxb_secret
-      POSTGRES_DB: nxb_chatbot
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_HOST_AUTH_METHOD: trust
     ports:
       - "5433:5432"
     volumes:
       - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   qdrant:
     image: qdrant/qdrant:latest
     ports:
-      - "6333:6333"    # REST API
-      - "6334:6334"    # gRPC
+      - "6333:6333"
+      - "6334:6334"
     volumes:
       - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo > /dev/tcp/localhost/6333"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://nxb:nxb_secret@postgres:5432/nxb_chatbot
+      CHECKPOINTER_DATABASE_URL: postgresql://nxb:nxb_secret@postgres:5432/nxb_chatbot
+      QDRANT_URL: http://qdrant:6333
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
 
 volumes:
   pg_data:
