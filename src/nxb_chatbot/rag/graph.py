@@ -5,7 +5,7 @@ from langgraph.graph import END, START, StateGraph
 from psycopg_pool import AsyncConnectionPool
 
 from nxb_chatbot.core.config import settings
-from nxb_chatbot.rag.nodes import answer_generator, query_reformulator, retriever, web_search, guardrail, meal_subscription_node, check_meal_status_node
+from nxb_chatbot.rag.nodes import answer_generator, query_reformulator, retriever, web_search, guardrail, meal_subscription_node, check_meal_status_node, conversational_response
 from nxb_chatbot.rag.state import ChatState
 
 logger = logging.getLogger(__name__)
@@ -28,11 +28,16 @@ def route_after_guardrail(state: ChatState) -> str:
     if not state.get("guardrail_passed"):
         return END
 
-    intent = state.get("meal_intent")
+    intent = state.get("route_intent")
+
     if intent == "meal_subscription":
         return "meal_subscription"
+
     if intent == "meal_status_check":
         return "check_meal_status"
+
+    if intent == "conversational":
+        return "conversational_response"
 
     return "query_reformulator"
 
@@ -61,6 +66,7 @@ def _build_graph() -> StateGraph:
     builder.add_node("retriever", retriever)
     builder.add_node("web_search", web_search)
     builder.add_node("answer_generator", answer_generator)
+    builder.add_node("conversational_response", conversational_response)
 
     builder.add_node("meal_subscription", meal_subscription_node)
     builder.add_node("check_meal_status", check_meal_status_node)
@@ -83,6 +89,7 @@ def _build_graph() -> StateGraph:
         {
             "meal_subscription": "meal_subscription",
             "check_meal_status": "check_meal_status",
+            "conversational_response": "conversational_response",
             "query_reformulator": "query_reformulator",
             END: END,
         },
@@ -103,6 +110,7 @@ def _build_graph() -> StateGraph:
     builder.add_edge("answer_generator", END)
     builder.add_edge("meal_subscription", END)
     builder.add_edge("check_meal_status", END)
+    builder.add_edge("conversational_response", END)
 
     return builder
 

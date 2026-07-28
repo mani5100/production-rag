@@ -4,7 +4,7 @@ from langchain_core.messages import AIMessage
 from langgraph.types import interrupt
 
 from nxb_chatbot.core.config import settings
-from nxb_chatbot.rag.prompts import MEAL_CHOICE_PROMPT, MEAL_INVALID_PROMPT, rag_prompt, reformulation_prompt
+from nxb_chatbot.rag.prompts import MEAL_CHOICE_PROMPT, MEAL_INVALID_PROMPT, rag_prompt, reformulation_prompt, conversational_prompt
 from nxb_chatbot.rag.reranker import get_reranking_retriever
 from nxb_chatbot.rag.schema import GuardrailResult
 from nxb_chatbot.rag.services import (
@@ -55,8 +55,21 @@ def guardrail(state: ChatState) -> dict:
         }
 
     return {
-        "guardrail_passed": True,
-        "meal_intent": result.intent if result.intent != "general_query" else None,
+    "guardrail_passed": True,
+    "route_intent": result.intent,
+}
+
+def conversational_response(state: ChatState) -> dict:
+    messages = trim_conversation(state)
+
+    response = (conversational_prompt | llm).invoke(
+        {"messages": messages}
+    )
+
+    return {
+        "messages": [response],
+        "retrieved_docs": [],
+        "web_search_used": False,
     }
 
 

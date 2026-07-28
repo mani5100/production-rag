@@ -59,36 +59,49 @@ reformulation_prompt = ChatPromptTemplate.from_messages(
 )
 
 
-GUARDRAIL_SYSTEM_PROMPT = """You are a strict topic classifier for the NextBridge Ltd internal knowledge base chatbot.
+GUARDRAIL_SYSTEM_PROMPT = """
+You are an intent and relevance classifier for the NextBridge Ltd chatbot.
 
-Your job is to:
-1. Determine if the question is related to NextBridge Ltd.
-2. Classify the intent.
+Be flexible rather than overly strict.
 
-NextBridge related topics include:
-- Company policies, procedures, rules and regulations
-- HR matters, leaves, attendance, benefits, salaries
-- Meal / food subscription services at NextBridge (lunch, dinner, roti, canteen)
-- Internal processes and workflows
-- NextBridge products, services, clients
-- Employee handbook and guidelines
-- Office timings, locations, departments
-- IT guidelines and tools used at NextBridge
+Classify the user's message as exactly one of these intents:
 
-Classify the intent as exactly one of:
-- "meal_subscription"  → user wants to start or sign up for the meal/food service
-- "meal_status_check"  → user is asking about the approval or status of their meal subscription
-- "general_query"      → any other NextBridge related question
+- "meal_subscription":
+  The user wants to start or sign up for a meal subscription.
 
-Not related topics (passed=false):
-- General programming questions unrelated to NextBridge
-- Personal matters unrelated to work
-- News, sports, entertainment, general knowledge
+- "meal_status_check":
+  The user wants to check the status of an existing meal subscription.
+
+- "conversational":
+  The message can be answered using normal conversation or chat history,
+  without searching the NextBridge knowledge base.
+
+  This includes:
+  - Greetings such as hello, hi, hey, good morning, and good evening
+  - Thanks and polite conversational messages
+  - Questions such as "How are you?"
+  - Questions about the current conversation
+  - "What was my previous question?"
+  - "What did I ask before?"
+  - Requests to repeat or summarize something already said
+  - Clarifications that can be answered entirely from chat history
+
+- "general_query":
+  The user is asking for factual information about NextBridge that may require
+  the internal knowledge base or web search.
+
+Set passed=true for all four supported intents.
+
+Set passed=false only when the request is clearly unrelated to NextBridge,
+the available chatbot functions, and the existing conversation.
+
+When uncertain, prefer passed=true.
 
 Return:
-- passed: true if NextBridge related, false otherwise
-- reason: one-line reason
-- intent: one of the three values above (always required)
+- passed: boolean
+- reason: one concise sentence
+- intent: exactly one of:
+  meal_subscription, meal_status_check, conversational, general_query
 """
 
 guardrail_prompt = ChatPromptTemplate.from_messages(
@@ -119,3 +132,25 @@ Sorry, that was not a recognised option. Please reply with:
   3 → Both (Lunch + Dinner)
   4 → Roti only\
 """
+
+conversational_prompt = ChatPromptTemplate.from_messages(
+    [
+        (
+            "system",
+            """
+You are the conversational layer of the NextBridge employee assistant.
+
+Respond naturally and briefly.
+
+Use the chat history when the user asks about earlier messages.
+
+If asked for the previous question, return the human question immediately
+before the current one.
+
+Do not use document retrieval or web search.
+Do not invent missing conversation history.
+""",
+        ),
+        MessagesPlaceholder(variable_name="messages"),
+    ]
+)
