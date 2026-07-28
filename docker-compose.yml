@@ -46,6 +46,26 @@ services:
         condition: service_healthy
       qdrant:
         condition: service_healthy 
+
+  tts:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command:
+      [
+        "uv",
+        "run",
+        "uvicorn",
+        "nxb_chatbot.tts.app:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "5000",
+      ]
+    ports:
+      - "5000:5000"
+    restart: unless-stopped
+
   frontend:
     build:
       context: .
@@ -56,7 +76,7 @@ services:
         "run",
         "chainlit",
         "run",
-        "frontend/app.py",
+        "/app/src/nxb_chatbot/frontend/app.py",
         "--host",
         "0.0.0.0",
         "--port",
@@ -69,12 +89,14 @@ services:
       - .env
     environment:
       API_BASE_URL: http://app:8000/api/v1
-
-      # Prevent Chainlit from interpreting the backend SQLAlchemy URL
-      # as its own persistence database.
+      TTS_WEBSOCKET_URL: ws://localhost:5000/ws/speech
       DATABASE_URL: ""
+    volumes:
+      - ./src/nxb_chatbot/frontend/public:/app/public
     depends_on:
       app:
+        condition: service_started
+      tts:
         condition: service_started
     restart: unless-stopped
 
