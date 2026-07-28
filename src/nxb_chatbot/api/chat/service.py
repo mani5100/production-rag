@@ -1,6 +1,9 @@
 import logging
 import uuid
 
+import json
+from collections.abc import AsyncGenerator
+
 from langgraph.types import Command
 from langchain_core.messages import HumanMessage
 from sqlalchemy import select
@@ -77,6 +80,113 @@ async def chat(
         web_search_used=state.get("web_search_used"),
         guardrail_passed=state.get("guardrail_passed"),
     )
+    
+    
+async def stream_chat(
+    request: ChatRequest,
+    graph,
+    db: AsyncSession,
+) -> AsyncGenerator[str, None]:
+    """Run LangGraph and stream events as newline-delimited JSON."""
+
+    if request.session_id:
+        session = await get_session_by_id(
+            request.session_id,
+            db,
+        )
+        logger.info("Resuming streaming session: %s", session.id)
+    else:
+        session = await create_session(db)
+        logger.info("Created streaming session: %s", session.id)
+
+    config = {
+        "configurable": {
+            "thread_id": session.thread_id,
+        }
+    }
+
+    input_data = {
+        "messages": [
+            HumanMessage(content=request.message)
+        ],
+        "retrieved_docs": [],
+        "retrieval_filters": request.retrieval_filters,
+        "standalone_query": None,
+        "guardrail_passed": None,
+        "web_search_used": None,
+        "meal_intent": None,
+    }
+
+    # Send the session information immediately.
+    yield json.dumps(
+        {
+            "type": "session",
+            "session_id": str(session.id),
+            "thread_id": session.thread_id,
+        }
+    ) + "\n"
+
+    try:
+        async for message_chunk, metadata in graph.astream(
+            input_data,
+            config=config,
+            stream_mode="messages",
+        ):
+            node_name = metadata.get("langgraph_node")
+
+            # Only stream the final RAG answer.
+            # Otherwise tokens from guardrail and query reformulation
+            # may also appear in the UI.
+            if node_name != "answer_generator":
+                continue
+
+            content = getattr(message_chunk, "content", "")
+
+            if isinstance(content, str) and content:
+                yield json.dumps(
+                    {
+                        "type": "token",
+                        "content": content,
+                    }
+                ) + "\n"
+
+        # Read the completed checkpointed state.
+        final_state = await graph.aget_state(config)
+
+        values = final_state.values if final_state else {}
+
+        yield json.dumps(
+            {
+                "type": "done",
+                "session_id": str(session.id),
+                "thread_id": session.thread_id,
+                "retrieved_docs": values.get(
+                    "retrieved_docs",
+                    [],
+                ),
+                "web_search_used": values.get(
+                    "web_search_used",
+                    False,
+                ),
+                "guardrail_passed": values.get(
+                    "guardrail_passed",
+                ),
+            }
+        ) + "\n"
+
+    except Exception as exc:
+        logger.error(
+            "Streaming graph invocation failed: %s",
+            exc,
+            exc_info=True,
+        )
+
+        yield json.dumps(
+            {
+                "type": "error",
+                "message": str(exc),
+            }
+        ) + "\n"
     
 
 # List Sessions

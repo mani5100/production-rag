@@ -45,7 +45,38 @@ services:
       postgres:
         condition: service_healthy
       qdrant:
-        condition: service_healthy
+        condition: service_healthy 
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command:
+      [
+        "uv",
+        "run",
+        "chainlit",
+        "run",
+        "frontend/app.py",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8001",
+        "-h",
+      ]
+    ports:
+      - "8001:8001"
+    env_file:
+      - .env
+    environment:
+      API_BASE_URL: http://app:8000/api/v1
+
+      # Prevent Chainlit from interpreting the backend SQLAlchemy URL
+      # as its own persistence database.
+      DATABASE_URL: ""
+    depends_on:
+      app:
+        condition: service_started
+    restart: unless-stopped
 
 volumes:
   pg_data:

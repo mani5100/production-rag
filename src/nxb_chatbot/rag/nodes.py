@@ -261,14 +261,12 @@ def _get_latest_human_message(messages: list) -> str:
 
 def meal_subscription_node(state: ChatState) -> dict:
     """
-    Step-based state machine — no interrupt() needed.
     meal_data.step tracks where we are in the flow.
     route_entry bypasses guardrail so mid-flow messages reach this node directly.
     """
     meal = state.get("meal_data") or {}
     latest = _get_latest_human_message(state["messages"])
 
-    # Already submitted
     if meal.get("email_sent"):
         return {
             "messages": [AIMessage(
@@ -281,7 +279,6 @@ def meal_subscription_node(state: ChatState) -> dict:
 
     step = meal.get("step", "start")
 
-    # ── Step 1: First entry — show meal options ─────────────────────────────
     if step == "start":
         return {
             "meal_data": {**meal, "step": "waiting_preference", "in_progress": True},
@@ -341,7 +338,7 @@ def meal_subscription_node(state: ChatState) -> dict:
             },
             "messages": [AIMessage(
                 content=(
-                    f"✅ Done, **{name}**! Your **{preference}** subscription request "
+                    f"Done, **{name}**! Your **{preference}** subscription request "
                     f"(ID: {emp_id}) has been sent to the meals department.\n\n"
                     f"Ask *'What is the status of my meal subscription?'* anytime to check for a reply."
                 )
@@ -352,10 +349,7 @@ def meal_subscription_node(state: ChatState) -> dict:
         "messages": [AIMessage(content="Something went wrong. Please say 'I want to subscribe to meals' to start again.")]
     }
 
-
-# ---------------------------------------------------------------------------
 # Node 7 — Check meal subscription status
-# ---------------------------------------------------------------------------
 
 def check_meal_status_node(state: ChatState) -> dict:
     """
@@ -415,7 +409,7 @@ def check_meal_status_node(state: ChatState) -> dict:
     if reply_body == "NO_REPLY":
         return {
             "messages": [AIMessage(
-                content=f"⏳ No reply yet from the meals department for your **{preference}** subscription. Please check back later."
+                content=f"No reply yet from the meals department for your **{preference}** subscription. Please check back later."
             )]
         }
 

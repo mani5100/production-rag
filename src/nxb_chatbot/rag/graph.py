@@ -11,11 +11,6 @@ from nxb_chatbot.rag.state import ChatState
 logger = logging.getLogger(__name__)
 
 def route_entry(state: ChatState) -> str:
-    """
-    Checks meal flow state BEFORE hitting the guardrail.
-    Bypasses guardrail when user is mid-subscription or confirming ack —
-    otherwise 'Abdul Rehman' and 'NXB-0042' get blocked as off-topic.
-    """
     meal = state.get("meal_data") or {}
 
     # Mid-subscription: collecting preference / name / emp_id

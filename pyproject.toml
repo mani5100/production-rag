@@ -10,11 +10,13 @@ requires-python = ">=3.11"
 dependencies = [
     "alembic>=1.18.5",
     "asyncpg>=0.31.0",
+    "chainlit>=2.11.1",
     "fastapi>=0.140.0",
     "fastembed>=0.8.0",
     "flashrank>=0.2.10",
     "google-api-python-client>=2.198.0",
     "google-auth>=2.56.2",
+    "httpx>=0.28.1",
     "langchain>=1.3.14",
     "langchain-community>=0.4.2",
     "langchain-openai>=1.4.1",
