@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime, timezone
+from uuid import uuid4
 
 from google.oauth2.credentials import Credentials
 from langchain_community.tools.gmail.get_thread import GmailGetThread
@@ -59,86 +60,140 @@ def send_meal_subscription_email(
 ) -> str:
     """
     Sends a meal subscription request email to the meals department.
-    Call this after collecting the employee's name, ID, and meal preference.
+
+    A unique tracking reference is added to the subject so the exact sent
+    message can be found without matching an older meal request.
 
     Args:
         name: Full name of the employee.
-        employee_id: Employee ID (e.g. NXB-0042).
-        preference: Chosen meal plan — Lunch, Dinner, Both, or Roti Only.
+        employee_id: Employee ID, for example NXB-0042.
+        preference: Lunch, Dinner, Both, or Roti Only.
 
     Returns:
-        Confirmation string with thread_id for reply tracking.
+        Confirmation string containing the Gmail thread_id.
     """
+    request_reference = uuid4().hex
+
+    subject = f"{MEAL_EMAIL_SUBJECT} [{request_reference}]"
+
     body = (
         f"Dear Meals Coordinator,<br><br>"
-        f"An employee has submitted a meal subscription request via the NXB internal chatbot.<br><br>"
-        f"&nbsp;&nbsp;Full Name&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;: {name}<br>"
-        f"&nbsp;&nbsp;Employee ID&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;: {employee_id}<br>"
+        f"An employee has submitted a meal subscription request via the "
+        f"NXB internal chatbot.<br><br>"
+        f"&nbsp;&nbsp;Full Name"
+        f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;: {name}<br>"
+        f"&nbsp;&nbsp;Employee ID"
+        f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;: {employee_id}<br>"
         f"&nbsp;&nbsp;Subscription Type : {preference}<br>"
-        f"&nbsp;&nbsp;Request Time&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}<br><br>"
-        f"Please process this request and reply to this email to confirm activation.<br><br>"
+        f"&nbsp;&nbsp;Request Reference&nbsp;: {request_reference}<br>"
+        f"&nbsp;&nbsp;Request Time"
+        f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;: "
+        f"{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}<br><br>"
+        f"Please process this request and reply to this email to confirm "
+        f"activation.<br><br>"
         f"Regards,<br>NXB Chatbot System"
     )
 
-    _send().invoke({
-        "to": [settings.MEAL_DEPARTMENT_EMAIL],
-        "subject": MEAL_EMAIL_SUBJECT,
-        "message": body,
-    })
+    _send().invoke(
+        {
+            "to": [settings.MEAL_DEPARTMENT_EMAIL],
+            "subject": subject,
+            "message": body,
+        }
+    )
 
-    logger.info(f"Meal subscription email sent for {name} ({employee_id})")
+    logger.info(
+        "Meal subscription email sent for %s (%s), reference=%s",
+        name,
+        employee_id,
+        request_reference,
+    )
 
-    # Retrieve thread_id so we can track the reply later
     thread_id: str | None = None
+
     try:
-        results = _search().invoke({
-            "query": f'in:sent subject:"{MEAL_EMAIL_SUBJECT}"',
-            "resource": "messages",
-            "max_results": 1,
-        })
+        results = _search().invoke(
+            {
+                # The unique reference prevents an older email from matching.
+                "query": f'in:sent subject:"{request_reference}"',
+                "resource": "messages",
+                "max_results": 1,
+            }
+        )
+
         if isinstance(results, list) and results:
             thread_id = results[0].get("threadId")
-    except Exception as exc:
-        logger.warning(f"Could not retrieve thread_id: {exc}")
 
-    return f"Email sent successfully. thread_id={thread_id}"
+    except Exception as exc:
+        logger.warning(
+            "Could not retrieve thread_id for request %s: %s",
+            request_reference,
+            exc,
+        )
+
+    return (
+        f"Email sent successfully. "
+        f"thread_id={thread_id}; "
+        f"request_reference={request_reference}"
+    )
 
 
 @tool
 def check_meal_reply(thread_id: str) -> str:
     """
-    Checks if the meals department has replied to the subscription email.
-    Use the thread_id returned by send_meal_subscription_email.
+    Checks only the Gmail thread associated with the current meal request.
 
     Args:
-        thread_id: Gmail thread ID of the original subscription email.
+        thread_id: Gmail thread ID of the current subscription email.
 
     Returns:
-        The reply body if found, or a message saying no reply yet.
+        Reply body when a reply exists, otherwise NO_REPLY.
     """
-    try:
-        thread_msgs = _thread().invoke({"thread_id": thread_id})
-        if isinstance(thread_msgs, list) and len(thread_msgs) > 1:
-            reply = thread_msgs[-1]
-            body = reply.get("body") or reply.get("snippet", "")
-            logger.info(f"Reply found in thread {thread_id}")
-            return body
-    except Exception as exc:
-        logger.warning(f"Thread lookup failed: {exc}")
+    if not thread_id or thread_id.lower() == "none":
+        logger.warning("Meal reply check skipped because thread_id is missing.")
+        return "TRACKING_UNAVAILABLE"
 
-    # Fallback — search inbox for any reply from department
     try:
-        results = _search().invoke({
-            "query": f"from:{settings.MEAL_DEPARTMENT_EMAIL} subject:Re:",
-            "resource": "messages",
-            "max_results": 1,
-        })
-        if isinstance(results, list) and results:
-            return results[0].get("body") or results[0].get("snippet", "Reply found.")
-    except Exception as exc:
-        logger.warning(f"Search fallback failed: {exc}")
+        thread_data = _thread().invoke({"thread_id": thread_id})
+        thread_msgs = (
+            thread_data.get("messages", [])
+            if isinstance(thread_data, dict)
+            else thread_data
+        )
 
-    return "NO_REPLY"
+        if not isinstance(thread_msgs, list) or len(thread_msgs) <= 1:
+            return "NO_REPLY"
+
+        # The first message is the outgoing subscription request.
+        # Inspect later messages only.
+        for message in reversed(thread_msgs[1:]):
+            sender = str(
+                message.get("from")
+                or message.get("sender")
+                or message.get("From")
+                or ""
+            ).lower()
+
+            # Some Gmail tool responses may not expose the sender field.
+            # When it is available, require the configured department sender.
+            if sender and settings.MEAL_DEPARTMENT_EMAIL.lower() not in sender:
+                continue
+
+            body = message.get("body") or message.get("snippet", "")
+
+            if body:
+                logger.info("Reply found in meal thread %s", thread_id)
+                return body
+
+        return "NO_REPLY"
+
+    except Exception as exc:
+        logger.warning(
+            "Meal thread lookup failed for thread_id=%s: %s",
+            thread_id,
+            exc,
+        )
+        return "TRACKING_UNAVAILABLE"
 
 
 @tool

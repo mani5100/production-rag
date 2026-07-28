@@ -336,9 +336,20 @@ def meal_subscription_node(state: ChatState) -> dict:
             "preference": preference,
         })
 
-        thread_id: str | None = None
+        tthread_id: str | None = None
+        request_reference: str | None = None
+
         if "thread_id=" in result:
-            thread_id = result.split("thread_id=")[-1].strip() or None
+            thread_id_part = result.split("thread_id=", 1)[1]
+            thread_id = thread_id_part.split(";", 1)[0].strip() or None
+
+            if thread_id and thread_id.lower() == "none":
+                thread_id = None
+
+        if "request_reference=" in result:
+            request_reference = (
+                result.split("request_reference=", 1)[1].strip() or None
+            )
 
         return {
             "meal_data": {
@@ -347,6 +358,7 @@ def meal_subscription_node(state: ChatState) -> dict:
                 "employee_id": emp_id,
                 "email_sent": True,
                 "thread_id": thread_id,
+                "request_reference": request_reference,
                 "in_progress": False,
             },
             "messages": [AIMessage(
@@ -387,6 +399,21 @@ def check_meal_status_node(state: ChatState) -> dict:
                 )
             )]
         }
+    if not thread_id:
+        logger.warning(
+            "Meal status cannot be checked because no thread_id is stored."
+        )
+        return {
+            "messages": [
+                AIMessage(
+                    content=(
+                        "Your meal request was sent, but its email tracking "
+                        "information is unavailable. I cannot safely check its "
+                        "status without risking showing an older request's reply."
+                    )
+                )
+            ]
+        }
 
     if meal.get("acknowledged"):
         return {
@@ -417,13 +444,31 @@ def check_meal_status_node(state: ChatState) -> dict:
 
     # ── Check for reply via @tool ────────────────────────────────────────────
     logger.info(f"Checking meal reply for thread_id={thread_id}")
-    reply_body = check_meal_reply.invoke({"thread_id": thread_id or ""})
+    reply_body = check_meal_reply.invoke({"thread_id": thread_id})
 
+    if reply_body == "TRACKING_UNAVAILABLE":
+        return {
+            "messages": [
+                AIMessage(
+                    content=(
+                        "I could not access the tracked email conversation for "
+                        f"your **{preference}** subscription. Please try checking "
+                        "again later."
+                    )
+                )
+            ]
+        }
+    
     if reply_body == "NO_REPLY":
         return {
-            "messages": [AIMessage(
-                content=f"No reply yet from the meals department for your **{preference}** subscription. Please check back later."
-            )]
+            "messages": [
+                AIMessage(
+                    content=(
+                        "No reply yet from the meals department for your "
+                        f"**{preference}** subscription. Please check back later."
+                    )
+                )
+            ]
         }
 
     # ── Reply found — show it and ask for ack ───────────────────────────────
