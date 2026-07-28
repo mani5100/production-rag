@@ -47,6 +47,7 @@ class Settings(BaseSettings):
     GMAIL_REFRESH_TOKEN: str
     GMAIL_SENDER_EMAIL: str
     MEAL_DEPARTMENT_EMAIL: str
+    MIS_DEPARTMENT_EMAIL: str
     GMAIL_APP_PASSWORD: str = ""
     
     # Guardrail

@@ -19,8 +19,11 @@ from nxb_chatbot.vector_store.qdrant_client import get_vector_store
 
 from nxb_chatbot.tools.gmail import (
     check_meal_reply,
+    check_mis_reply,
     send_meal_acknowledgment,
     send_meal_subscription_email,
+    send_mis_acknowledgment,
+    send_mis_request_email,
 )
 
 logger = logging.getLogger(__name__)
@@ -105,6 +108,23 @@ def _parse_meal_preference(user_input: str) -> str | None:
         return "Lunch"
     if "dinner" in parsed_lower:
         return "Dinner"
+
+    return None
+
+def _parse_mis_issue_type(user_input: str) -> str | None:
+    value = user_input.strip().lower()
+
+    if value in {"1", "hardware", "hardware related"}:
+        return "Hardware"
+
+    if value in {"2", "operational", "operation", "operational related"}:
+        return "Operational"
+
+    if "hardware" in value:
+        return "Hardware"
+
+    if "operational" in value or "operation" in value:
+        return "Operational"
 
     return None
 
@@ -458,7 +478,7 @@ def check_meal_status_node(state: ChatState) -> dict:
                 )
             ]
         }
-    
+
     if reply_body == "NO_REPLY":
         return {
             "messages": [
@@ -491,4 +511,289 @@ def check_meal_status_node(state: ChatState) -> dict:
                 f"Should I send this? Reply **yes** to send or **no** to skip."
             )
         )],
+    }
+    
+
+def mis_request_node(state: ChatState) -> dict:
+    mis = state.get("mis_data") or {}
+    latest = _get_latest_human_message(state["messages"])
+
+    if mis.get("email_sent"):
+        return {
+            "messages": [
+                AIMessage(
+                    content=(
+                        "Your MIS request has already been submitted. "
+                        "Ask *'What is the status of my MIS request?'* "
+                        "to check for updates."
+                    )
+                )
+            ]
+        }
+
+    step = mis.get("step", "start")
+
+    if step == "start":
+        return {
+            "mis_data": {
+                **mis,
+                "step": "waiting_issue_type",
+                "in_progress": True,
+            },
+            "messages": [
+                AIMessage(
+                    content=(
+                        "What type of MIS issue are you facing?\n\n"
+                        "1. Hardware related\n"
+                        "2. Operational"
+                    )
+                )
+            ],
+        }
+
+    if step == "waiting_issue_type":
+        issue_type = _parse_mis_issue_type(latest)
+
+        if not issue_type:
+            return {
+                "mis_data": {**mis},
+                "messages": [
+                    AIMessage(
+                        content=(
+                            "Please select one of these options:\n\n"
+                            "1. Hardware related\n"
+                            "2. Operational"
+                        )
+                    )
+                ],
+            }
+
+        return {
+            "mis_data": {
+                **mis,
+                "step": "waiting_name",
+                "issue_type": issue_type,
+            },
+            "messages": [
+                AIMessage(
+                    content=(
+                        "Please enter your **full name** "
+                        "as it appears in HR records:"
+                    )
+                )
+            ],
+        }
+
+    if step == "waiting_name":
+        return {
+            "mis_data": {
+                **mis,
+                "step": "waiting_emp_id",
+                "name": latest.strip(),
+            },
+            "messages": [
+                AIMessage(
+                    content="Please enter your **Employee ID** (e.g. NXB-0042):"
+                )
+            ],
+        }
+
+    if step == "waiting_emp_id":
+        employee_id = latest.strip()
+        name = mis.get("name", "")
+        issue_type = mis.get("issue_type", "")
+
+        result = send_mis_request_email.invoke(
+            {
+                "issue_type": issue_type,
+                "name": name,
+                "employee_id": employee_id,
+            }
+        )
+
+        thread_id: str | None = None
+        request_reference: str | None = None
+
+        if "thread_id=" in result:
+            thread_id = (
+                result.split("thread_id=", 1)[1]
+                .split(";", 1)[0]
+                .strip()
+                or None
+            )
+
+            if thread_id and thread_id.lower() == "none":
+                thread_id = None
+
+        if "request_reference=" in result:
+            request_reference = (
+                result.split("request_reference=", 1)[1].strip() or None
+            )
+
+        return {
+            "mis_data": {
+                **mis,
+                "step": "completed",
+                "employee_id": employee_id,
+                "email_sent": True,
+                "thread_id": thread_id,
+                "request_reference": request_reference,
+                "in_progress": False,
+            },
+            "messages": [
+                AIMessage(
+                    content=(
+                        f"Done, **{name}**! Your **{issue_type}** MIS request "
+                        f"(ID: {employee_id}) has been sent to the MIS team.\n\n"
+                        "Ask *'What is the status of my MIS request?'* "
+                        "anytime to check for a reply."
+                    )
+                )
+            ],
+        }
+
+    return {
+        "messages": [
+            AIMessage(
+                content=(
+                    "Something went wrong. Please say "
+                    "'I want to contact MIS' to start again."
+                )
+            )
+        ]
+    }
+    
+    
+def check_mis_status_node(state: ChatState) -> dict:
+    mis = state.get("mis_data") or {}
+    latest = _get_latest_human_message(state["messages"])
+
+    issue_type = mis.get("issue_type")
+    name = mis.get("name", "the employee")
+    employee_id = mis.get("employee_id", "N/A")
+    thread_id = mis.get("thread_id")
+
+    if not mis.get("email_sent") or not issue_type:
+        return {
+            "messages": [
+                AIMessage(
+                    content=(
+                        "I don't have a submitted MIS request for this session. "
+                        "Say *'I want to contact MIS'* to create one."
+                    )
+                )
+            ]
+        }
+
+    if not thread_id:
+        return {
+            "messages": [
+                AIMessage(
+                    content=(
+                        "Your MIS request was sent, but its email tracking "
+                        "information is unavailable. I cannot safely check its "
+                        "status without risking showing an older request's reply."
+                    )
+                )
+            ]
+        }
+
+    if mis.get("acknowledged"):
+        return {
+            "messages": [
+                AIMessage(
+                    content="Your MIS response has already been acknowledged."
+                )
+            ]
+        }
+
+    if mis.get("waiting_for_ack"):
+        if latest.strip().lower() in {"yes", "y"}:
+            send_mis_acknowledgment.invoke(
+                {
+                    "name": name,
+                    "employee_id": employee_id,
+                }
+            )
+
+            return {
+                "mis_data": {
+                    **mis,
+                    "acknowledged": True,
+                    "waiting_for_ack": False,
+                },
+                "messages": [
+                    AIMessage(
+                        content="Acknowledgment sent to the MIS team."
+                    )
+                ],
+            }
+
+        return {
+            "mis_data": {
+                **mis,
+                "waiting_for_ack": False,
+            },
+            "messages": [
+                AIMessage(
+                    content=(
+                        "Okay, acknowledgment skipped. "
+                        "Ask for the status again anytime."
+                    )
+                )
+            ],
+        }
+
+    reply_body = check_mis_reply.invoke({"thread_id": thread_id})
+
+    if reply_body == "TRACKING_UNAVAILABLE":
+        return {
+            "messages": [
+                AIMessage(
+                    content=(
+                        "I could not access the tracked email conversation "
+                        "for your MIS request. Please check again later."
+                    )
+                )
+            ]
+        }
+
+    if reply_body == "NO_REPLY":
+        return {
+            "messages": [
+                AIMessage(
+                    content=(
+                        "No reply yet from the MIS team for your "
+                        f"**{issue_type}** request. Please check back later."
+                    )
+                )
+            ]
+        }
+
+    acknowledgment = (
+        f"Dear MIS Team,\n\n"
+        f"Thank you for your response regarding the MIS request for "
+        f"{name} (ID: {employee_id}).\n\n"
+        f"We acknowledge receipt and will act accordingly.\n\n"
+        f"Regards,\nNXB Chatbot System"
+    )
+
+    return {
+        "mis_data": {
+            **mis,
+            "waiting_for_ack": True,
+        },
+        "messages": [
+            AIMessage(
+                content=(
+                    "📬 The MIS team has replied!\n\n"
+                    f"**Their reply:** _{reply_body[:500]}_\n\n"
+                    "---\n"
+                    "**Draft acknowledgment:**\n"
+                    f"```\n{acknowledgment}\n```\n\n"
+                    "Should I send this? Reply **yes** to send "
+                    "or **no** to skip."
+                )
+            )
+        ],
     }

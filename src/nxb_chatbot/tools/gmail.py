@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 GMAIL_SCOPES = ["https://mail.google.com/"]
 MEAL_EMAIL_SUBJECT = "Meal Subscription Request — NXB Chatbot"
+MIS_EMAIL_SUBJECT = "MIS Support Request — NXB Chatbot"
 
 
 def _get_credentials() -> Credentials:
@@ -224,4 +225,144 @@ def send_meal_acknowledgment(name: str, employee_id: str) -> str:
     })
 
     logger.info(f"Acknowledgment sent for {name} ({employee_id})")
+    return "Acknowledgment email sent successfully."
+
+
+@tool
+def send_mis_request_email(
+    issue_type: str,
+    name: str,
+    employee_id: str,
+) -> str:
+    """Sends an MIS support request and returns its tracking information."""
+    request_reference = uuid4().hex
+    subject = f"{MIS_EMAIL_SUBJECT} [{request_reference}]"
+
+    body = (
+        f"Dear MIS Team,<br><br>"
+        f"An employee has submitted an MIS support request through the "
+        f"NXB internal chatbot.<br><br>"
+        f"&nbsp;&nbsp;Issue Type"
+        f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;: {issue_type}<br>"
+        f"&nbsp;&nbsp;Full Name"
+        f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;: {name}<br>"
+        f"&nbsp;&nbsp;Employee ID"
+        f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;: {employee_id}<br>"
+        f"&nbsp;&nbsp;Request Reference: {request_reference}<br>"
+        f"&nbsp;&nbsp;Request Time"
+        f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;: "
+        f"{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}<br><br>"
+        f"Please review this request and reply to this email with an update."
+        f"<br><br>"
+        f"Regards,<br>NXB Chatbot System"
+    )
+
+    _send().invoke(
+        {
+            "to": [settings.MIS_DEPARTMENT_EMAIL],
+            "subject": subject,
+            "message": body,
+        }
+    )
+
+    thread_id: str | None = None
+
+    try:
+        results = _search().invoke(
+            {
+                "query": f'in:sent subject:"{request_reference}"',
+                "resource": "messages",
+                "max_results": 1,
+            }
+        )
+
+        if isinstance(results, list) and results:
+            thread_id = results[0].get("threadId")
+    except Exception as exc:
+        logger.warning(
+            "Could not retrieve MIS thread_id for request %s: %s",
+            request_reference,
+            exc,
+        )
+
+    logger.info(
+        "MIS request sent for %s (%s), reference=%s",
+        name,
+        employee_id,
+        request_reference,
+    )
+
+    return (
+        f"Email sent successfully. "
+        f"thread_id={thread_id}; "
+        f"request_reference={request_reference}"
+    )
+
+
+@tool
+def check_mis_reply(thread_id: str) -> str:
+    """Checks the Gmail thread belonging to the current MIS request."""
+    if not thread_id or thread_id.lower() == "none":
+        return "TRACKING_UNAVAILABLE"
+
+    try:
+        thread_data = _thread().invoke({"thread_id": thread_id})
+        messages = (
+            thread_data.get("messages", [])
+            if isinstance(thread_data, dict)
+            else thread_data
+        )
+
+        if not isinstance(messages, list) or len(messages) <= 1:
+            return "NO_REPLY"
+
+        for message in reversed(messages[1:]):
+            sender = str(
+                message.get("from")
+                or message.get("sender")
+                or message.get("From")
+                or ""
+            ).lower()
+
+            if sender and settings.MIS_DEPARTMENT_EMAIL.lower() not in sender:
+                continue
+
+            body = message.get("body") or message.get("snippet", "")
+
+            if body:
+                logger.info("Reply found in MIS thread %s", thread_id)
+                return body
+
+        return "NO_REPLY"
+
+    except Exception as exc:
+        logger.warning(
+            "MIS thread lookup failed for thread_id=%s: %s",
+            thread_id,
+            exc,
+        )
+        return "TRACKING_UNAVAILABLE"
+
+
+@tool
+def send_mis_acknowledgment(name: str, employee_id: str) -> str:
+    """Sends an acknowledgment after the MIS department responds."""
+    body = (
+        f"Dear MIS Team,<br><br>"
+        f"Thank you for your response regarding the MIS request for "
+        f"{name} (ID: {employee_id}).<br><br>"
+        f"We acknowledge receipt of your reply and will act accordingly."
+        f"<br><br>"
+        f"Regards,<br>NXB Chatbot System"
+    )
+
+    _send().invoke(
+        {
+            "to": [settings.MIS_DEPARTMENT_EMAIL],
+            "subject": f"Re: {MIS_EMAIL_SUBJECT}",
+            "message": body,
+        }
+    )
+
+    logger.info("MIS acknowledgment sent for %s (%s)", name, employee_id)
     return "Acknowledgment email sent successfully."

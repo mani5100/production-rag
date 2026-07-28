@@ -21,10 +21,7 @@ Context:
 {context}
 """
 
-# ---------------------------------------------------------------------------
-# RAG Prompt
-# Used by the answer generator node.
-# ---------------------------------------------------------------------------
+# RAG Prompt Used by the answer generator node.
 
 rag_prompt = ChatPromptTemplate.from_messages(
     [
@@ -33,11 +30,6 @@ rag_prompt = ChatPromptTemplate.from_messages(
     ]
 )
 
-# ---------------------------------------------------------------------------
-# Query Reformulation Prompt
-# Used by the query reformulator node on follow-up turns.
-# Takes chat history + new question → standalone question.
-# ---------------------------------------------------------------------------
 
 REFORMULATION_SYSTEM_PROMPT = """You are a query reformulation assistant.
 Given a conversation history and a follow-up question, rewrite the follow-up question 
@@ -72,25 +64,24 @@ Classify the user's message as exactly one of these intents:
 - "meal_status_check":
   The user wants to check the status of an existing meal subscription.
 
+- "mis_request":
+  The user is having an IT, hardware, system, or operational issue and wants
+  to contact MIS or submit an MIS support request.
+
+- "mis_status_check":
+  The user wants to check the status or reply for an existing MIS request.
+
 - "conversational":
   The message can be answered using normal conversation or chat history,
   without searching the NextBridge knowledge base.
-
-  This includes:
-  - Greetings such as hello, hi, hey, good morning, and good evening
-  - Thanks and polite conversational messages
-  - Questions such as "How are you?"
-  - Questions about the current conversation
-  - "What was my previous question?"
-  - "What did I ask before?"
-  - Requests to repeat or summarize something already said
-  - Clarifications that can be answered entirely from chat history
+  This includes greetings, thanks, conversation-history questions,
+  and clarifications that can be answered from chat history.
 
 - "general_query":
   The user is asking for factual information about NextBridge that may require
   the internal knowledge base or web search.
 
-Set passed=true for all four supported intents.
+Set passed=true for all supported intents.
 
 Set passed=false only when the request is clearly unrelated to NextBridge,
 the available chatbot functions, and the existing conversation.
@@ -101,8 +92,10 @@ Return:
 - passed: boolean
 - reason: one concise sentence
 - intent: exactly one of:
-  meal_subscription, meal_status_check, conversational, general_query
+  meal_subscription, meal_status_check, mis_request, mis_status_check,
+  conversational, general_query
 """
+
 
 guardrail_prompt = ChatPromptTemplate.from_messages(
     [

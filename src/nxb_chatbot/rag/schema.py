@@ -8,6 +8,8 @@ class GuardrailResult(BaseModel):
     intent: Literal[
         "meal_subscription",
         "meal_status_check",
+        "mis_request",
+        "mis_status_check",
         "conversational",
         "general_query",
     ] = "general_query"

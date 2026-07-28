@@ -16,3 +16,4 @@ class ChatState(TypedDict):
     route_intent: str | None
     meal_intent: str | None
     meal_data: dict | None
+    mis_data: dict | None
