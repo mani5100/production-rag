@@ -114,6 +114,17 @@ async def process_user_text(user_text: str) -> None:
                                 backend_session_id,
                             )
 
+                        if not received_token:
+                            fallback_answer = event.get("answer", "")
+
+                            if fallback_answer:
+                                received_token = True
+                                full_answer += fallback_answer
+
+                                await response_message.stream_token(
+                                    fallback_answer
+                                )
+
                         if event.get("web_search_used"):
                             await response_message.stream_token(
                                 "\n\n🌐 _Web search was used._"

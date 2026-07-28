@@ -134,10 +134,7 @@ async def stream_chat(
         ):
             node_name = metadata.get("langgraph_node")
 
-            # Only stream the final RAG answer.
-            # Otherwise tokens from guardrail and query reformulation
-            # may also appear in the UI.
-            if node_name != "answer_generator":
+            if node_name not in ("answer_generator", "conversational_response"):
                 continue
 
             content = getattr(message_chunk, "content", "")
@@ -154,12 +151,15 @@ async def stream_chat(
         final_state = await graph.aget_state(config)
 
         values = final_state.values if final_state else {}
+        final_messages = values.get("messages", [])
+        final_answer = final_messages[-1].content if final_messages else ""
 
         yield json.dumps(
             {
                 "type": "done",
                 "session_id": str(session.id),
                 "thread_id": session.thread_id,
+                "answer": final_answer,
                 "retrieved_docs": values.get(
                     "retrieved_docs",
                     [],
