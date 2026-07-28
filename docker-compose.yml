@@ -66,10 +66,36 @@ services:
       - "5000:5000"
     restart: unless-stopped
 
+  stt:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command:
+      [
+        "uv",
+        "run",
+        "uvicorn",
+        "nxb_chatbot.stt.app:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "6000",
+      ]
+    ports:
+      - "6000:6000"
+    environment:
+      WHISPER_MODEL: small.en
+      WHISPER_DEVICE: cpu
+      WHISPER_COMPUTE_TYPE: int8
+    volumes:
+      - whisper_cache:/root/.cache/huggingface
+    restart: unless-stopped
+
   frontend:
     build:
       context: .
       dockerfile: Dockerfile
+  
     command:
       [
         "uv",
@@ -81,25 +107,37 @@ services:
         "0.0.0.0",
         "--port",
         "8001",
-        "-h",
+        "-h"
       ]
+  
     ports:
       - "8001:8001"
+  
     env_file:
       - .env
+  
     environment:
       API_BASE_URL: http://app:8000/api/v1
+      STT_BASE_URL: http://stt:6000
       TTS_WEBSOCKET_URL: ws://localhost:5000/ws/speech
       DATABASE_URL: ""
+  
     volumes:
+      - ./src/nxb_chatbot/frontend:/app/src/nxb_chatbot/frontend
       - ./src/nxb_chatbot/frontend/public:/app/public
+      - ./.chainlit:/app/.chainlit
+  
     depends_on:
       app:
         condition: service_started
       tts:
         condition: service_started
+      stt:
+        condition: service_started
+  
     restart: unless-stopped
 
 volumes:
   pg_data:
   qdrant_data:
+  whisper_cache:
