@@ -1,91 +1,60 @@
-import asyncio
-import logging
-import sys
+import httpx
 
-if sys.platform == "win32":
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-    
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
-    stream=sys.stdout,
-)
-
-from langchain_core.messages import HumanMessage
-from nxb_chatbot.rag.graph import get_compiled_graph
+BASE = "http://localhost:8000/api/v1/chat/"
 
 
-async def test_rag():
+def chat(message: str, session_id: str | None = None) -> dict:
+    payload = {
+        "message": message,
+        "session_id": str(session_id) if session_id else None,
+        "retrieval_filters": None,
+    }
+    response = httpx.post(BASE, json=payload)
+    response.raise_for_status()
+    return response.json()
+
+
+def run():
     print("\n" + "="*60)
-    print("STEP 1 — Compiling RAG graph")
-    print("="*60)
-    graph, pool = await get_compiled_graph()
-    print("Graph compiled successfully.")
-
-    # thread_id simulates a user session
-    config = {"configurable": {"thread_id": "test-session-001"}}
-
-    # -------------------------------------------------------
-    # Turn 1 — First question (no reformulation expected)
-    # -------------------------------------------------------
-    print("\n" + "="*60)
-    print("STEP 2 — Turn 1 (first question)")
+    print("MEAL SUBSCRIPTION FLOW TEST")
     print("="*60)
 
-    question_1 = "What are the benefits that are given to nextbridge employees"
+    # Turn 1 — trigger subscription
+    print("\n[Turn 1] User: I want to subscribe to meals")
+    res = chat("I want to subscribe to meals")
+    session_id = res["session_id"]
+    print(f"Bot    : {res['answer']}")
+    print(f"Session: {session_id}")
 
-    print(f"Question: {question_1}\n")
+    # Turn 2 — meal preference
+    user_input = input("\n[Turn 2] Your choice (e.g. 'i want both'): ")
+    res = chat(user_input, session_id)
+    print(f"Bot    : {res['answer']}")
 
-    state_1 = await graph.ainvoke(
-        {"messages": [HumanMessage(content=question_1)],
-         "retrieved_docs": [],
-         "retrieval_filters": None,
-         "standalone_query": None,
-         },
-        config=config,
-    )
+    # Turn 3 — name
+    user_input = input("\n[Turn 3] Your full name: ")
+    res = chat(user_input, session_id)
+    print(f"Bot    : {res['answer']}")
 
-    print(f"Standalone query : {state_1['standalone_query']}")
-    print(f"Chunks retrieved : {len(state_1['retrieved_docs'])}")
-    print("\nRetrieved chunks:")
-    for i, doc in enumerate(state_1["retrieved_docs"], 1):
-        meta = doc["metadata"]          # ← dict key, not attribute
-        print(
-            f"  [{i}] {meta.get('file_name')} | "
-            f"page {meta.get('page')} | "
-            f"table: {meta.get('has_table')} | "
-            f"rerank_score: {meta.get('relevance_score', 'N/A')}"
-        )
+    # Turn 4 — employee ID
+    user_input = input("\n[Turn 4] Your employee ID: ")
+    res = chat(user_input, session_id)
+    print(f"Bot    : {res['answer']}")
 
-    print(f"\nAnswer:\n{state_1['messages'][-1].content}")
+    # Turn 5 — check status
+    input("\n[Press Enter when the department has replied to check status]")
+    res = chat("What is the status of my meal subscription?", session_id)
+    print(f"Bot    : {res['answer']}")
 
-    # -------------------------------------------------------
-    # Turn 2 — Follow-up (reformulation expected)
-    # -------------------------------------------------------
+    # Turn 6 — acknowledge
+    user_input = input("\n[Turn 6] Send acknowledgment? (yes/no): ")
+    res = chat(user_input, session_id)
+    print(f"Bot    : {res['answer']}")
+
     print("\n" + "="*60)
-    print("STEP 3 — Turn 2 (follow-up question)")
+    print("TEST COMPLETE")
     print("="*60)
-
-    question_2 = "I am Associate Project Manager what will i get?"
-
-    print(f"Question: {question_2}\n")
-
-    state_2 = await graph.ainvoke(
-        {"messages": [HumanMessage(content=question_2)]},
-        config=config,
-    )
-
-    print(f"Standalone query  : {state_2['standalone_query']}")
-    print(f"Chunks retrieved  : {len(state_2['retrieved_docs'])}")
-    print(f"\nAnswer:\n{state_2['messages'][-1].content}")
-
-    # -------------------------------------------------------
-    # Cleanup
-    # -------------------------------------------------------
-    await pool.close()
-    print("\n✅ RAG test complete.")
 
 
 if __name__ == "__main__":
-    asyncio.run(test_rag())
+    run()

@@ -1,6 +1,7 @@
 import logging
 import uuid
 
+from langgraph.types import Command
 from langchain_core.messages import HumanMessage
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -35,13 +36,11 @@ async def create_session(db: AsyncSession) -> ChatSession:
 
 
 # Chat
-
 async def chat(
     request: ChatRequest,
     graph,
     db: AsyncSession,
 ) -> ChatResponse:
-    # Get or create session
     if request.session_id:
         session = await get_session_by_id(request.session_id, db)
         logger.info(f"Resuming session: {session.id}")
@@ -49,37 +48,36 @@ async def chat(
         session = await create_session(db)
         logger.info(f"New session: {session.id}")
 
-    # LangGraph config — thread_id ties to checkpointer
     config = {"configurable": {"thread_id": session.thread_id}}
 
+    input_data = {
+        "messages": [HumanMessage(content=request.message)],
+        "retrieved_docs": [],
+        "retrieval_filters": request.retrieval_filters,
+        "standalone_query": None,
+        "guardrail_passed": None,
+        "web_search_used": None,
+        "meal_intent": None,
+        # meal_data excluded — preserved from checkpoint across turns
+    }
+
     try:
-        state = await graph.ainvoke(
-            {
-                "messages": [HumanMessage(content=request.message)],
-                "retrieved_docs": [],
-                "retrieval_filters": request.retrieval_filters,
-                "standalone_query": None,
-                "guardrail_passed": None,
-                "web_search_used": None,
-            },
-            config=config,
-        )
+        state = await graph.ainvoke(input_data, config=config)
     except Exception as e:
         logger.error(f"Graph invocation failed: {e}", exc_info=True)
         raise GraphInvokeException(str(e))
 
     answer = state["messages"][-1].content
-    retrieved_docs = state.get("retrieved_docs", [])
 
     return ChatResponse(
         session_id=session.id,
         thread_id=session.thread_id,
         answer=answer,
-        retrieved_docs=retrieved_docs,
+        retrieved_docs=state.get("retrieved_docs", []),
         web_search_used=state.get("web_search_used"),
         guardrail_passed=state.get("guardrail_passed"),
     )
-
+    
 
 # List Sessions
 async def list_sessions(db: AsyncSession) -> list[SessionResponse]:

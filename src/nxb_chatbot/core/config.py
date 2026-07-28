@@ -39,8 +39,17 @@ class Settings(BaseSettings):
     TAVILY_API_KEY: str
     TAVILY_MAX_RESULTS: int = 2
     
-    # Guardrail
     RERANK_SCORE_THRESHOLD: float = 0.3
+    
+    GMAIL_CLIENT_ID: str
+    GMAIL_CLIENT_SECRET: str
+    GMAIL_TOKEN_URI: str = "https://oauth2.googleapis.com/token"
+    GMAIL_REFRESH_TOKEN: str
+    GMAIL_SENDER_EMAIL: str
+    MEAL_DEPARTMENT_EMAIL: str
+    GMAIL_APP_PASSWORD: str = ""
+    
+    # Guardrail
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

@@ -5,20 +5,41 @@ from langgraph.graph import END, START, StateGraph
 from psycopg_pool import AsyncConnectionPool
 
 from nxb_chatbot.core.config import settings
-from nxb_chatbot.rag.nodes import answer_generator, query_reformulator, retriever, web_search, guardrail
+from nxb_chatbot.rag.nodes import answer_generator, query_reformulator, retriever, web_search, guardrail, meal_subscription_node, check_meal_status_node
 from nxb_chatbot.rag.state import ChatState
 
 logger = logging.getLogger(__name__)
 
+def route_entry(state: ChatState) -> str:
+    """
+    Checks meal flow state BEFORE hitting the guardrail.
+    Bypasses guardrail when user is mid-subscription or confirming ack —
+    otherwise 'Abdul Rehman' and 'NXB-0042' get blocked as off-topic.
+    """
+    meal = state.get("meal_data") or {}
+
+    # Mid-subscription: collecting preference / name / emp_id
+    if meal.get("in_progress") and not meal.get("email_sent"):
+        return "meal_subscription"
+
+    # Waiting for yes/no on acknowledgment
+    if meal.get("waiting_for_ack") and not meal.get("acknowledged"):
+        return "check_meal_status"
+
+    return "guardrail"
+
+
 def route_after_guardrail(state: ChatState) -> str:
-    """
-    After guardrail node:
-    - passed → continue to query_reformulator
-    - failed → END (canned response already in messages)
-    """
-    if state.get("guardrail_passed"):
-        return "query_reformulator"
-    return END
+    if not state.get("guardrail_passed"):
+        return END
+
+    intent = state.get("meal_intent")
+    if intent == "meal_subscription":
+        return "meal_subscription"
+    if intent == "meal_status_check":
+        return "check_meal_status"
+
+    return "query_reformulator"
 
 
 def route_after_retriever(state: ChatState) -> str:
@@ -46,17 +67,32 @@ def _build_graph() -> StateGraph:
     builder.add_node("web_search", web_search)
     builder.add_node("answer_generator", answer_generator)
 
+    builder.add_node("meal_subscription", meal_subscription_node)
+    builder.add_node("check_meal_status", check_meal_status_node)
+    
+    
     # Entry point
-    builder.add_edge(START, "guardrail")
+    builder.add_conditional_edges(
+        START,
+        route_entry,
+        {
+            "guardrail":        "guardrail",
+            "meal_subscription": "meal_subscription",
+            "check_meal_status": "check_meal_status",
+        },
+    )
+    
     builder.add_conditional_edges(
         "guardrail",
         route_after_guardrail,
         {
+            "meal_subscription": "meal_subscription",
+            "check_meal_status": "check_meal_status",
             "query_reformulator": "query_reformulator",
             END: END,
         },
     )
-    
+
     builder.add_edge("query_reformulator", "retriever")
     builder.add_conditional_edges(
         "retriever",
@@ -70,6 +106,8 @@ def _build_graph() -> StateGraph:
     builder.add_edge("web_search", "answer_generator")
 
     builder.add_edge("answer_generator", END)
+    builder.add_edge("meal_subscription", END)
+    builder.add_edge("check_meal_status", END)
 
     return builder
 

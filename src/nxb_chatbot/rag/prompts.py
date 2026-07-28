@@ -61,26 +61,34 @@ reformulation_prompt = ChatPromptTemplate.from_messages(
 
 GUARDRAIL_SYSTEM_PROMPT = """You are a strict topic classifier for the NextBridge Ltd internal knowledge base chatbot.
 
-Your job is to determine if the user's question is related to NextBridge Ltd or not.
+Your job is to:
+1. Determine if the question is related to NextBridge Ltd.
+2. Classify the intent.
 
 NextBridge related topics include:
 - Company policies, procedures, rules and regulations
 - HR matters, leaves, attendance, benefits, salaries
+- Meal / food subscription services at NextBridge (lunch, dinner, roti, canteen)
 - Internal processes and workflows
 - NextBridge products, services, clients
 - Employee handbook and guidelines
 - Office timings, locations, departments
 - IT guidelines and tools used at NextBridge
-- Any question about NextBridge as a company
 
-Not related topics include:
-- General programming or technical questions unrelated to NextBridge
+Classify the intent as exactly one of:
+- "meal_subscription"  → user wants to start or sign up for the meal/food service
+- "meal_status_check"  → user is asking about the approval or status of their meal subscription
+- "general_query"      → any other NextBridge related question
+
+Not related topics (passed=false):
+- General programming questions unrelated to NextBridge
 - Personal matters unrelated to work
-- News, sports, entertainment
-- General knowledge questions
-- Anything not specifically about NextBridge Ltd
+- News, sports, entertainment, general knowledge
 
-Classify the question and provide a brief reason for your decision.
+Return:
+- passed: true if NextBridge related, false otherwise
+- reason: one-line reason
+- intent: one of the three values above (always required)
 """
 
 guardrail_prompt = ChatPromptTemplate.from_messages(
@@ -89,3 +97,25 @@ guardrail_prompt = ChatPromptTemplate.from_messages(
         ("human", "Question: {question}"),
     ]
 )
+
+# Meal subscription prompts
+
+MEAL_CHOICE_PROMPT = """\
+To set up your meal subscription at NextBridge, please choose your preferred plan:
+
+1. Lunch only
+2. Dinner only
+3. Both (Lunch + Dinner)
+4. Roti only
+
+Reply with a number (1-4) or the plan name.\
+"""
+
+MEAL_INVALID_PROMPT = """\
+Sorry, that was not a recognised option. Please reply with:
+
+  1 → Lunch
+  2 → Dinner
+  3 → Both (Lunch + Dinner)
+  4 → Roti only\
+"""

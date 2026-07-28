@@ -13,3 +13,6 @@ class ChatState(TypedDict):
     standalone_query: str | None
     guardrail_passed: bool | None
     web_search_used: bool | None
+    
+    meal_intent: str | None
+    meal_data: dict | None
