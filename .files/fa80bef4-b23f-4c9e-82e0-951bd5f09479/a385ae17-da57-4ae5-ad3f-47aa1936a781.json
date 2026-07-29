@@ -1,0 +1,1 @@
+{"text": "To set up your meal subscription at NextBridge, please choose your preferred plan:\n\n1. Lunch only\n2. Dinner only\n3. Both (Lunch + Dinner)\n4. Roti only\n\nReply with a number (1-4) or the plan name.", "websocketUrl": "ws://localhost:5000/ws/speech"}

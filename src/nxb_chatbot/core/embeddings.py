@@ -1,19 +1,31 @@
 import logging
 
-from langchain_openai import OpenAIEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 
 from nxb_chatbot.core.config import settings
 
 logger = logging.getLogger(__name__)
 
 
-def get_dense_embedder() -> OpenAIEmbeddings:
+def get_dense_embedder() -> HuggingFaceEmbeddings:
     """
-    Returns the dense embedder using OpenAI text-embedding-3-small.
-    This is used by both the ingestion pipeline and the RAG retriever.
+    Returns the local Hugging Face dense embedding model.
+
+    Used by both the ingestion pipeline and the RAG retriever.
     """
-    return OpenAIEmbeddings(
-        model=settings.EMBEDDING_MODEL,
-        dimensions=settings.EMBEDDING_DIMENSIONS,
-        api_key=settings.OPENAI_API_KEY,
+    logger.info(
+        "Loading embedding model: %s on %s",
+        settings.EMBEDDING_MODEL,
+        settings.EMBEDDING_DEVICE,
+    )
+
+    return HuggingFaceEmbeddings(
+        model_name=settings.EMBEDDING_MODEL,
+        model_kwargs={
+            "device": settings.EMBEDDING_DEVICE,
+        },
+        encode_kwargs={
+            "normalize_embeddings": True,
+            "batch_size": settings.EMBEDDING_BATCH_SIZE,
+        },
     )

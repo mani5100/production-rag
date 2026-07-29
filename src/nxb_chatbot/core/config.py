@@ -50,6 +50,19 @@ class Settings(BaseSettings):
     MIS_DEPARTMENT_EMAIL: str
     GMAIL_APP_PASSWORD: str = ""
     
+    
+    GROQ_API_KEY: str
+    GROQ_BASE_URL: str = "https://api.groq.com/openai/v1"
+    LLM_MODEL: str = "openai/gpt-oss-20b"
+    LLM_MAX_TOKENS: int = 4096
+    
+    
+    EMBEDDING_MODEL: str = "BAAI/bge-base-en-v1.5"
+    EMBEDDING_DIMENSIONS: int = 768
+    EMBEDDING_DEVICE: str = "cpu"
+    EMBEDDING_BATCH_SIZE: int = 16
+    
+    
     # Guardrail
     model_config = SettingsConfigDict(
         env_file=".env",
