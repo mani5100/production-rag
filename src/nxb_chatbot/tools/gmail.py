@@ -1,6 +1,9 @@
+import base64
+from email.message import EmailMessage
 import logging
 from datetime import datetime, timezone
 from uuid import uuid4
+from html import escape
 
 from google.oauth2.credentials import Credentials
 from langchain_community.tools.gmail.get_thread import GmailGetThread
@@ -16,6 +19,8 @@ logger = logging.getLogger(__name__)
 GMAIL_SCOPES = ["https://mail.google.com/"]
 MEAL_EMAIL_SUBJECT = "Meal Subscription Request — NXB Chatbot"
 MIS_EMAIL_SUBJECT = "MIS Support Request — NXB Chatbot"
+EMPLOYEE_REQUEST_EMAIL_SUBJECT = ("Employee Leave / Work From Home Request — NXB Chatbot")
+
 
 
 def _get_credentials() -> Credentials:
@@ -366,3 +371,359 @@ def send_mis_acknowledgment(name: str, employee_id: str) -> str:
 
     logger.info("MIS acknowledgment sent for %s (%s)", name, employee_id)
     return "Acknowledgment email sent successfully."
+
+
+@tool
+def send_employee_request_to_gm(
+    request_type: str,
+    employee_name: str,
+    employee_id: str,
+    start_date: str,
+    end_date: str,
+    reason: str = "",
+) -> str:
+    """
+    Sends a confirmed Leave or Work From Home request to the General Manager.
+
+    Call this tool only after the employee explicitly confirms the final
+    request summary.
+
+    Args:
+        request_type: Leave or Work From Home.
+        employee_name: Full employee name.
+        employee_id: Employee ID, for example NXB-0042.
+        start_date: Start date in YYYY-MM-DD format.
+        end_date: End date in YYYY-MM-DD format.
+        reason: Optional employee-provided reason.
+
+    Returns:
+        A result containing thread_id and request_reference.
+    """
+    allowed_types = {"Leave", "Work From Home"}
+
+    if request_type not in allowed_types:
+        return "ERROR: Unsupported request type."
+
+    request_reference = uuid4().hex
+    subject = (
+        f"{request_type} Request — "
+        f"{employee_name} [{request_reference}]"
+    )
+
+    reason_section = ""
+    if reason.strip():
+        reason_section = (
+            f"&nbsp;&nbsp;Reason"
+            f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;: "
+            f"{escape(reason.strip())}<br>"
+        )
+
+    body = (
+        f"Dear General Manager,<br><br>"
+        f"An employee has submitted a "
+        f"{escape(request_type)} request through the "
+        f"NXB internal chatbot.<br><br>"
+        f"&nbsp;&nbsp;Request Type"
+        f"&nbsp;&nbsp;&nbsp;: {escape(request_type)}<br>"
+        f"&nbsp;&nbsp;Full Name"
+        f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;: "
+        f"{escape(employee_name)}<br>"
+        f"&nbsp;&nbsp;Employee ID"
+        f"&nbsp;&nbsp;&nbsp;&nbsp;: "
+        f"{escape(employee_id)}<br>"
+        f"&nbsp;&nbsp;Start Date"
+        f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;: {escape(start_date)}<br>"
+        f"&nbsp;&nbsp;End Date"
+        f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;: "
+        f"{escape(end_date)}<br>"
+        f"{reason_section}"
+        f"&nbsp;&nbsp;Reference"
+        f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;: "
+        f"{request_reference}<br>"
+        f"&nbsp;&nbsp;Submitted At"
+        f"&nbsp;&nbsp;&nbsp;: "
+        f"{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}"
+        f"<br><br>"
+        f"Please review this request and reply to this email with your "
+        f"decision or any required clarification.<br><br>"
+        f"Regards,<br>"
+        f"NXB Chatbot System"
+    )
+
+    _send().invoke(
+        {
+            "to": [settings.GM_EMAIL],
+            "subject": subject,
+            "message": body,
+        }
+    )
+
+    thread_id: str | None = None
+
+    try:
+        results = _search().invoke(
+            {
+                "query": f'in:sent subject:"{request_reference}"',
+                "resource": "messages",
+                "max_results": 1,
+            }
+        )
+
+        if isinstance(results, list) and results:
+            thread_id = results[0].get("threadId")
+
+    except Exception as exc:
+        logger.warning(
+            "Could not retrieve GM request thread_id for reference %s: %s",
+            request_reference,
+            exc,
+        )
+
+    logger.info(
+        "%s request sent to GM for %s (%s), reference=%s",
+        request_type,
+        employee_name,
+        employee_id,
+        request_reference,
+    )
+
+    return (
+        "Email sent successfully. "
+        f"thread_id={thread_id}; "
+        f"request_reference={request_reference}"
+    )
+    
+    
+@tool
+def check_gm_employee_request_reply(thread_id: str) -> str:
+    """
+    Checks the exact Gmail thread belonging to the employee's submitted
+    Leave or Work From Home request.
+
+    Args:
+        thread_id: Gmail thread ID returned by
+            send_employee_request_to_gm.
+
+    Returns:
+        The GM reply body, NO_REPLY, or TRACKING_UNAVAILABLE.
+    """
+    if not thread_id or thread_id.lower() == "none":
+        logger.warning(
+            "GM request reply check skipped because thread_id is missing."
+        )
+        return "TRACKING_UNAVAILABLE"
+
+    try:
+        thread_data = _thread().invoke({"thread_id": thread_id})
+
+        messages = (
+            thread_data.get("messages", [])
+            if isinstance(thread_data, dict)
+            else thread_data
+        )
+
+        if not isinstance(messages, list) or len(messages) <= 1:
+            return "NO_REPLY"
+
+        # First message is the outgoing request. Inspect replies only.
+        for message in reversed(messages[1:]):
+            sender = str(
+                message.get("from")
+                or message.get("sender")
+                or message.get("From")
+                or ""
+            ).lower()
+
+            if sender and settings.GM_EMAIL.lower() not in sender:
+                continue
+
+            body = message.get("body") or message.get("snippet", "")
+
+            if body:
+                logger.info(
+                    "GM reply found in employee request thread %s",
+                    thread_id,
+                )
+                return str(body)
+
+        return "NO_REPLY"
+
+    except Exception as exc:
+        logger.warning(
+            "GM thread lookup failed for thread_id=%s: %s",
+            thread_id,
+            exc,
+        )
+        return "TRACKING_UNAVAILABLE"
+    
+    
+@tool
+def send_gm_employee_request_acknowledgement(
+    thread_id: str,
+    acknowledgement: str,
+) -> str:
+    """
+    Sends the employee-approved LLM-generated acknowledgement inside the
+    original Gmail conversation.
+
+    Call this only after:
+    1. a GM response has been found;
+    2. the LLM has generated an acknowledgement;
+    3. the employee has confirmed sending it.
+
+    Args:
+        thread_id: Gmail thread ID of the original request.
+        acknowledgement: Final acknowledgement written by the LLM.
+
+    Returns:
+        Confirmation or an error message.
+    """
+    if not thread_id or thread_id.lower() == "none":
+        return "ERROR: Cannot send acknowledgement without a thread ID."
+
+    if not acknowledgement.strip():
+        return "ERROR: Acknowledgement content is empty."
+
+    try:
+        thread_data = _get_api_resource().users().threads().get(
+            userId="me",
+            id=thread_id,
+            format="metadata",
+            metadataHeaders=["Subject"],
+        ).execute()
+
+        original_subject = EMPLOYEE_REQUEST_EMAIL_SUBJECT
+
+        messages = thread_data.get("messages", [])
+        if messages:
+            headers = messages[0].get("payload", {}).get("headers", [])
+
+            for header in headers:
+                if header.get("name", "").lower() == "subject":
+                    original_subject = header.get(
+                        "value",
+                        EMPLOYEE_REQUEST_EMAIL_SUBJECT,
+                    )
+                    break
+
+        if not original_subject.lower().startswith("re:"):
+            subject = f"Re: {original_subject}"
+        else:
+            subject = original_subject
+
+        email = EmailMessage()
+        email["To"] = settings.GM_EMAIL
+        email["Subject"] = subject
+        email.set_content(acknowledgement)
+
+        encoded_message = base64.urlsafe_b64encode(
+            email.as_bytes()
+        ).decode()
+
+        _get_api_resource().users().messages().send(
+            userId="me",
+            body={
+                "raw": encoded_message,
+                "threadId": thread_id,
+            },
+        ).execute()
+
+        logger.info(
+            "LLM-generated acknowledgement sent in GM thread %s",
+            thread_id,
+        )
+
+        return "Acknowledgement sent successfully."
+
+    except Exception as exc:
+        logger.exception(
+            "Could not send acknowledgement in GM thread %s",
+            thread_id,
+        )
+        return f"ERROR: Could not send acknowledgement: {exc}"
+    
+    
+@tool
+def send_gm_employee_request_acknowledgement(
+    thread_id: str,
+    acknowledgement: str,
+) -> str:
+    """
+    Sends the employee-approved LLM-generated acknowledgement inside the
+    original Gmail conversation.
+
+    Call this only after:
+    1. a GM response has been found;
+    2. the LLM has generated an acknowledgement;
+    3. the employee has confirmed sending it.
+
+    Args:
+        thread_id: Gmail thread ID of the original request.
+        acknowledgement: Final acknowledgement written by the LLM.
+
+    Returns:
+        Confirmation or an error message.
+    """
+    if not thread_id or thread_id.lower() == "none":
+        return "ERROR: Cannot send acknowledgement without a thread ID."
+
+    if not acknowledgement.strip():
+        return "ERROR: Acknowledgement content is empty."
+
+    try:
+        thread_data = _get_api_resource().users().threads().get(
+            userId="me",
+            id=thread_id,
+            format="metadata",
+            metadataHeaders=["Subject"],
+        ).execute()
+
+        original_subject = EMPLOYEE_REQUEST_EMAIL_SUBJECT
+
+        messages = thread_data.get("messages", [])
+        if messages:
+            headers = messages[0].get("payload", {}).get("headers", [])
+
+            for header in headers:
+                if header.get("name", "").lower() == "subject":
+                    original_subject = header.get(
+                        "value",
+                        EMPLOYEE_REQUEST_EMAIL_SUBJECT,
+                    )
+                    break
+
+        if not original_subject.lower().startswith("re:"):
+            subject = f"Re: {original_subject}"
+        else:
+            subject = original_subject
+
+        email = EmailMessage()
+        email["To"] = settings.GM_EMAIL
+        email["Subject"] = subject
+        email.set_content(acknowledgement)
+
+        encoded_message = base64.urlsafe_b64encode(
+            email.as_bytes()
+        ).decode()
+
+        _get_api_resource().users().messages().send(
+            userId="me",
+            body={
+                "raw": encoded_message,
+                "threadId": thread_id,
+            },
+        ).execute()
+
+        logger.info(
+            "LLM-generated acknowledgement sent in GM thread %s",
+            thread_id,
+        )
+
+        return "Acknowledgement sent successfully."
+
+    except Exception as exc:
+        logger.exception(
+            "Could not send acknowledgement in GM thread %s",
+            thread_id,
+        )
+        return f"ERROR: Could not send acknowledgement: {exc}"

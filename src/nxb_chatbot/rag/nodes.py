@@ -1,13 +1,34 @@
+from datetime import date
+import json
 import logging
 
 from langchain_core.messages import AIMessage
 from langgraph.types import interrupt
 
 from nxb_chatbot.core.config import settings
-from nxb_chatbot.rag.prompts import MEAL_CHOICE_PROMPT, MEAL_INVALID_PROMPT, rag_prompt, reformulation_prompt, conversational_prompt
+from nxb_chatbot.rag.prompts import (
+    MEAL_CHOICE_PROMPT,
+    MEAL_INVALID_PROMPT,
+    acknowledgement_confirmation_prompt,
+    conversational_prompt,
+    employee_confirmation_prompt,
+    employee_request_prompt,
+    gm_acknowledgement_prompt,
+    rag_prompt,
+    reformulation_prompt,
+)
 from nxb_chatbot.rag.reranker import get_reranking_retriever
-from nxb_chatbot.rag.schema import GuardrailResult
+from nxb_chatbot.rag.schema import (
+    AcknowledgementConfirmationDecision,
+    EmployeeConfirmationDecision,
+    EmployeeRequestDecision,
+    GMAcknowledgementResult,
+    GuardrailResult,
+)
 from nxb_chatbot.rag.services import (
+    _employee_request_view,
+    _extract_tracking_data,
+    _merge_non_null_values,
     format_context,
     get_guardrail_chain,
     get_tavily_search,
@@ -18,8 +39,11 @@ from nxb_chatbot.rag.state import ChatState
 from nxb_chatbot.vector_store.qdrant_client import get_vector_store
 
 from nxb_chatbot.tools.gmail import (
+    check_gm_employee_request_reply,
     check_meal_reply,
     check_mis_reply,
+    send_employee_request_to_gm,
+    send_gm_employee_request_acknowledgement,
     send_meal_acknowledgment,
     send_meal_subscription_email,
     send_mis_acknowledgment,
@@ -793,6 +817,483 @@ def check_mis_status_node(state: ChatState) -> dict:
                     f"```\n{acknowledgment}\n```\n\n"
                     "Should I send this? Reply **yes** to send "
                     "or **no** to skip."
+                )
+            )
+        ],
+    }
+    
+    
+
+
+# ---------------------------------------------------------------------------
+# Leave / Work From Home autonomous request node
+# ---------------------------------------------------------------------------
+
+def employee_request_node(state: ChatState) -> dict:
+    """
+    Autonomous LLM-driven Leave / Work From Home conversation.
+
+    The LLM:
+    - extracts values;
+    - understands corrections;
+    - chooses the next question;
+    - creates confirmation summaries;
+    - interprets confirmation.
+
+    Python executes the external Gmail action.
+    """
+    request_data = state.get("employee_request_data") or {}
+    latest = _get_latest_human_message(state["messages"])
+
+    if request_data.get("email_sent"):
+        return {
+            "messages": [
+                AIMessage(
+                    content=(
+                        "Your request has already been submitted to the "
+                        "General Manager. Ask for the status of your leave "
+                        "or work-from-home request to check for a reply."
+                    )
+                )
+            ]
+        }
+
+    # The employee was already shown a complete summary.
+    if request_data.get("confirmation_requested"):
+        confirmation_chain = (
+            employee_confirmation_prompt
+            | llm.with_structured_output(
+                EmployeeConfirmationDecision
+            )
+        )
+
+        confirmation = confirmation_chain.invoke(
+            {
+                "latest_message": latest,
+            }
+        )
+
+        if confirmation.action == "confirmed":
+            required_fields = (
+                "request_type",
+                "employee_name",
+                "employee_id",
+                "start_date",
+                "end_date",
+            )
+
+            missing_fields = [
+                field
+                for field in required_fields
+                if not request_data.get(field)
+            ]
+
+            if missing_fields:
+                # Defensive fallback: return control to the request LLM.
+                request_data = {
+                    **request_data,
+                    "confirmation_requested": False,
+                }
+            else:
+                tool_result = send_employee_request_to_gm.invoke(
+                    {
+                        "request_type": request_data["request_type"],
+                        "employee_name": request_data["employee_name"],
+                        "employee_id": request_data["employee_id"],
+                        "start_date": request_data["start_date"],
+                        "end_date": request_data["end_date"],
+                        "reason": request_data.get("reason", ""),
+                    }
+                )
+
+                if tool_result.startswith("ERROR:"):
+                    return {
+                        "employee_request_data": {
+                            **request_data,
+                            "confirmation_requested": False,
+                        },
+                        "messages": [
+                            AIMessage(
+                                content=(
+                                    "I could not submit the request because "
+                                    f"the email operation failed: {tool_result}"
+                                )
+                            )
+                        ],
+                    }
+
+                thread_id, request_reference = (
+                    _extract_tracking_data(tool_result)
+                )
+
+                return {
+                    "employee_request_data": {
+                        **request_data,
+                        "confirmation_requested": False,
+                        "email_sent": True,
+                        "in_progress": False,
+                        "thread_id": thread_id,
+                        "request_reference": request_reference,
+                        "waiting_for_ack": False,
+                        "acknowledged": False,
+                    },
+                    "messages": [
+                        AIMessage(
+                            content=(
+                                f"Your **{request_data['request_type']}** "
+                                "request has been sent to the General Manager. "
+                                "You can ask me for its status when you want "
+                                "to check for a reply."
+                            )
+                        )
+                    ],
+                }
+
+        elif confirmation.action == "rejected":
+            return {
+                "employee_request_data": {},
+                "messages": [
+                    AIMessage(content=confirmation.response)
+                ],
+            }
+
+        elif confirmation.action == "correction":
+            # Let the main extraction LLM read the correction and update fields.
+            request_data = {
+                **request_data,
+                "confirmation_requested": False,
+            }
+
+        else:
+            return {
+                "employee_request_data": request_data,
+                "messages": [
+                    AIMessage(content=confirmation.response)
+                ],
+            }
+
+    request_chain = (
+        employee_request_prompt
+        | llm.with_structured_output(EmployeeRequestDecision)
+    )
+
+    decision = request_chain.invoke(
+        {
+            "current_date": date.today().isoformat(),
+            "request_data": json.dumps(
+                _employee_request_view(request_data),
+                ensure_ascii=False,
+            ),
+            "latest_message": latest,
+            "messages": state["messages"],
+        }
+    )
+
+    update_values = decision.model_dump()
+
+    collected_fields = {
+        "request_type",
+        "employee_name",
+        "employee_id",
+        "start_date",
+        "end_date",
+        "reason",
+    }
+
+    updated_request = _merge_non_null_values(
+        request_data,
+        update_values,
+        collected_fields,
+    )
+
+    if decision.action == "cancel_request":
+        return {
+            "employee_request_data": {},
+            "messages": [
+                AIMessage(content=decision.response)
+            ],
+        }
+
+    if decision.action == "request_confirmation":
+        return {
+            "employee_request_data": {
+                **updated_request,
+                "in_progress": True,
+                "confirmation_requested": True,
+            },
+            "messages": [
+                AIMessage(content=decision.response)
+            ],
+        }
+
+    if decision.action == "send_request":
+        # The LLM is not allowed to bypass explicit confirmation.
+        # Convert an early send decision into a confirmation request.
+        return {
+            "employee_request_data": {
+                **updated_request,
+                "in_progress": True,
+                "confirmation_requested": True,
+            },
+            "messages": [
+                AIMessage(
+                    content=(
+                        f"{decision.response}\n\n"
+                        "Please confirm clearly whether I should send this "
+                        "request to the General Manager."
+                    )
+                )
+            ],
+        }
+
+    return {
+        "employee_request_data": {
+            **updated_request,
+            "in_progress": True,
+        },
+        "messages": [
+            AIMessage(content=decision.response)
+        ],
+    }
+    
+def check_employee_request_status_node(state: ChatState) -> dict:
+    """
+    Checks the GM response and uses the LLM to create and manage a
+    context-aware acknowledgement.
+    """
+    request_data = state.get("employee_request_data") or {}
+    latest = _get_latest_human_message(state["messages"])
+
+    if not request_data.get("email_sent"):
+        return {
+            "messages": [
+                AIMessage(
+                    content=(
+                        "I do not have a submitted Leave or Work From Home "
+                        "request for this conversation."
+                    )
+                )
+            ]
+        }
+
+    thread_id = request_data.get("thread_id")
+
+    if not thread_id:
+        return {
+            "messages": [
+                AIMessage(
+                    content=(
+                        "Your request was sent, but its Gmail tracking "
+                        "information is unavailable, so I cannot safely "
+                        "check the corresponding GM reply."
+                    )
+                )
+            ]
+        }
+
+    if request_data.get("acknowledged"):
+        return {
+            "messages": [
+                AIMessage(
+                    content=(
+                        "The General Manager's response has already been "
+                        "acknowledged."
+                    )
+                )
+            ]
+        }
+
+    # Employee has already been shown an acknowledgement draft.
+    if request_data.get("waiting_for_ack"):
+        confirmation_chain = (
+            acknowledgement_confirmation_prompt
+            | llm.with_structured_output(
+                AcknowledgementConfirmationDecision
+            )
+        )
+
+        confirmation = confirmation_chain.invoke(
+            {
+                "latest_message": latest,
+            }
+        )
+
+        if confirmation.action == "send":
+            acknowledgement = request_data.get(
+                "acknowledgement_draft",
+                "",
+            )
+
+            result = (
+                send_gm_employee_request_acknowledgement.invoke(
+                    {
+                        "thread_id": thread_id,
+                        "acknowledgement": acknowledgement,
+                    }
+                )
+            )
+
+            if result.startswith("ERROR:"):
+                return {
+                    "employee_request_data": request_data,
+                    "messages": [
+                        AIMessage(
+                            content=(
+                                "The acknowledgement could not be sent. "
+                                f"{result}"
+                            )
+                        )
+                    ],
+                }
+
+            return {
+                "employee_request_data": {
+                    **request_data,
+                    "waiting_for_ack": False,
+                    "acknowledged": True,
+                },
+                "messages": [
+                    AIMessage(content=confirmation.response)
+                ],
+            }
+
+        if confirmation.action == "skip":
+            return {
+                "employee_request_data": {
+                    **request_data,
+                    "waiting_for_ack": False,
+                },
+                "messages": [
+                    AIMessage(content=confirmation.response)
+                ],
+            }
+
+        if confirmation.action == "regenerate":
+            gm_reply = request_data.get("gm_reply", "")
+
+            acknowledgement_chain = (
+                gm_acknowledgement_prompt
+                | llm.with_structured_output(
+                    GMAcknowledgementResult
+                )
+            )
+
+            generated = acknowledgement_chain.invoke(
+                {
+                    "request_data": json.dumps(
+                        _employee_request_view(request_data),
+                        ensure_ascii=False,
+                    ),
+                    "gm_reply": gm_reply,
+                    "employee_name": request_data.get(
+                        "employee_name",
+                        "Employee",
+                    ),
+                    "employee_id": request_data.get(
+                        "employee_id",
+                        "N/A",
+                    ),
+                }
+            )
+
+            return {
+                "employee_request_data": {
+                    **request_data,
+                    "acknowledgement_draft": (
+                        generated.acknowledgement
+                    ),
+                    "waiting_for_ack": True,
+                },
+                "messages": [
+                    AIMessage(
+                        content=(
+                            f"{generated.reply_summary}\n\n"
+                            "**Rewritten acknowledgement:**\n"
+                            f"```\n{generated.acknowledgement}\n```\n\n"
+                            "Should I send it to the General Manager?"
+                        )
+                    )
+                ],
+            }
+
+        return {
+            "employee_request_data": request_data,
+            "messages": [
+                AIMessage(content=confirmation.response)
+            ],
+        }
+
+    gm_reply = check_gm_employee_request_reply.invoke(
+        {
+            "thread_id": thread_id,
+        }
+    )
+
+    if gm_reply == "TRACKING_UNAVAILABLE":
+        return {
+            "messages": [
+                AIMessage(
+                    content=(
+                        "I could not access the tracked Gmail conversation. "
+                        "Please check the status again later."
+                    )
+                )
+            ]
+        }
+
+    if gm_reply == "NO_REPLY":
+        return {
+            "messages": [
+                AIMessage(
+                    content=(
+                        "The General Manager has not replied to your "
+                        f"**{request_data.get('request_type', 'request')}** "
+                        "request yet."
+                    )
+                )
+            ]
+        }
+
+    acknowledgement_chain = (
+        gm_acknowledgement_prompt
+        | llm.with_structured_output(GMAcknowledgementResult)
+    )
+
+    generated = acknowledgement_chain.invoke(
+        {
+            "request_data": json.dumps(
+                _employee_request_view(request_data),
+                ensure_ascii=False,
+            ),
+            "gm_reply": gm_reply,
+            "employee_name": request_data.get(
+                "employee_name",
+                "Employee",
+            ),
+            "employee_id": request_data.get(
+                "employee_id",
+                "N/A",
+            ),
+        }
+    )
+
+    return {
+        "employee_request_data": {
+            **request_data,
+            "gm_reply": gm_reply,
+            "acknowledgement_draft": generated.acknowledgement,
+            "waiting_for_ack": True,
+        },
+        "messages": [
+            AIMessage(
+                content=(
+                    f"📬 **The General Manager has replied.**\n\n"
+                    f"{generated.reply_summary}\n\n"
+                    f"**GM reply:**\n"
+                    f"> {gm_reply[:1000]}\n\n"
+                    f"**LLM-generated acknowledgement:**\n"
+                    f"```\n{generated.acknowledgement}\n```\n\n"
+                    "Should I send this acknowledgement?"
                 )
             )
         ],

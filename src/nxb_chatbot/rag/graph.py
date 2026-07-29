@@ -7,9 +7,11 @@ from psycopg_pool import AsyncConnectionPool
 from nxb_chatbot.core.config import settings
 from nxb_chatbot.rag.nodes import (
     answer_generator,
+    check_employee_request_status_node,
     check_meal_status_node,
     check_mis_status_node,
     conversational_response,
+    employee_request_node,
     guardrail,
     meal_subscription_node,
     mis_request_node,
@@ -24,6 +26,7 @@ logger = logging.getLogger(__name__)
 def route_entry(state: ChatState) -> str:
     meal = state.get("meal_data") or {}
     mis = state.get("mis_data") or {}
+    employee_request = state.get("employee_request_data") or {}
 
     if meal.get("in_progress") and not meal.get("email_sent"):
         return "meal_subscription"
@@ -36,6 +39,18 @@ def route_entry(state: ChatState) -> str:
 
     if mis.get("waiting_for_ack") and not mis.get("acknowledged"):
         return "check_mis_status"
+
+    if (
+        employee_request.get("in_progress")
+        and not employee_request.get("email_sent")
+    ):
+        return "employee_request"
+
+    if (
+        employee_request.get("waiting_for_ack")
+        and not employee_request.get("acknowledged")
+    ):
+        return "check_employee_request_status"
 
     return "guardrail"
 
@@ -60,6 +75,12 @@ def route_after_guardrail(state: ChatState) -> str:
 
     if intent == "conversational":
         return "conversational_response"
+    
+    if intent == "employee_request":
+        return "employee_request"
+
+    if intent == "employee_request_status":
+        return "check_employee_request_status"
 
     return "query_reformulator"
 
@@ -91,6 +112,8 @@ def _build_graph() -> StateGraph:
     builder.add_node("conversational_response", conversational_response)
     builder.add_node("mis_request", mis_request_node)
     builder.add_node("check_mis_status", check_mis_status_node)
+    builder.add_node("employee_request", employee_request_node)
+    builder.add_node("check_employee_request_status",check_employee_request_status_node)
 
     builder.add_node("meal_subscription", meal_subscription_node)
     builder.add_node("check_meal_status", check_meal_status_node)
@@ -101,11 +124,15 @@ def _build_graph() -> StateGraph:
         START,
         route_entry,
         {
-            "guardrail":        "guardrail",
+            "guardrail": "guardrail",
             "meal_subscription": "meal_subscription",
             "check_meal_status": "check_meal_status",
             "mis_request": "mis_request",
             "check_mis_status": "check_mis_status",
+            "employee_request": "employee_request",
+            "check_employee_request_status": (
+                "check_employee_request_status"
+            ),
         },
     )
     
@@ -117,6 +144,10 @@ def _build_graph() -> StateGraph:
             "check_meal_status": "check_meal_status",
             "mis_request": "mis_request",
             "check_mis_status": "check_mis_status",
+            "employee_request": "employee_request",
+            "check_employee_request_status": (
+                "check_employee_request_status"
+            ),
             "conversational_response": "conversational_response",
             "query_reformulator": "query_reformulator",
             END: END,
@@ -141,6 +172,8 @@ def _build_graph() -> StateGraph:
     builder.add_edge("mis_request", END)
     builder.add_edge("check_mis_status", END)
     builder.add_edge("conversational_response", END)
+    builder.add_edge("employee_request", END)
+    builder.add_edge("check_employee_request_status", END)
 
     return builder
 

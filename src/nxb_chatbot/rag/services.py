@@ -1,3 +1,4 @@
+from html import escape
 import logging
 import os
 
@@ -83,3 +84,82 @@ def get_guardrail_chain():
     Returns GuardrailResult with passed: bool and reason: str.
     """
     return guardrail_prompt | llm.with_structured_output(GuardrailResult)
+
+
+def _plain_text_to_html(value: str) -> str:
+    """
+    Escapes LLM-generated email text before placing it into an HTML message.
+    """
+    return escape(value).replace("\n", "<br>")
+
+
+def _merge_non_null_values(
+    current: dict,
+    updates: dict,
+    allowed_fields: set[str],
+) -> dict:
+    """
+    Merge only non-null LLM-extracted fields into workflow state.
+    """
+    merged = dict(current)
+
+    for key in allowed_fields:
+        value = updates.get(key)
+
+        if value is not None:
+            if isinstance(value, str):
+                value = value.strip()
+
+            if value != "":
+                merged[key] = value
+
+    return merged
+
+
+def _extract_tracking_data(result: str) -> tuple[str | None, str | None]:
+    thread_id: str | None = None
+    request_reference: str | None = None
+
+    if "thread_id=" in result:
+        thread_id = (
+            result.split("thread_id=", 1)[1]
+            .split(";", 1)[0]
+            .strip()
+            or None
+        )
+
+        if thread_id and thread_id.lower() == "none":
+            thread_id = None
+
+    if "request_reference=" in result:
+        request_reference = (
+            result.split("request_reference=", 1)[1]
+            .split(";", 1)[0]
+            .strip()
+            or None
+        )
+
+    return thread_id, request_reference
+
+
+def _employee_request_view(request_data: dict) -> dict:
+    """
+    Only expose meaningful request fields to the LLM.
+    Avoid passing internal flags as if they were employee-provided facts.
+    """
+    keys = {
+        "request_type",
+        "employee_name",
+        "employee_id",
+        "start_date",
+        "end_date",
+        "reason",
+        "confirmation_requested",
+        "email_sent",
+    }
+
+    return {
+        key: request_data.get(key)
+        for key in keys
+        if request_data.get(key) is not None
+    }

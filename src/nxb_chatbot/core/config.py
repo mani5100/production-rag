@@ -62,6 +62,8 @@ class Settings(BaseSettings):
     EMBEDDING_DEVICE: str = "cpu"
     EMBEDDING_BATCH_SIZE: int = 16
     
+    GM_EMAIL: str
+    
     
     # Guardrail
     model_config = SettingsConfigDict(
