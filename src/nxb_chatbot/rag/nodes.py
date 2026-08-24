@@ -17,7 +17,7 @@ from nxb_chatbot.rag.prompts import (
     rag_prompt,
     reformulation_prompt,
 )
-from nxb_chatbot.rag.reranker import get_reranking_retriever
+from nxb_chatbot.rag.reranker import get_multi_query_retriever, get_reranking_retriever
 from nxb_chatbot.rag.schema import (
     AcknowledgementConfirmationDecision,
     EmployeeConfirmationDecision,
@@ -206,7 +206,8 @@ def retriever(state: ChatState) -> dict:
         search_kwargs=search_kwargs,
     )
 
-    reranking_retriever = get_reranking_retriever(base_retriever)
+    expanded_retriever = get_multi_query_retriever(base_retriever)
+    reranking_retriever = get_reranking_retriever(expanded_retriever)
     docs = reranking_retriever.invoke(query)
 
     # Convert to serializable dicts + fix numpy types

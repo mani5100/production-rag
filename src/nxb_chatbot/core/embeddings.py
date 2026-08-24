@@ -1,31 +1,25 @@
 import logging
 
-from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_ollama import OllamaEmbeddings
 
 from nxb_chatbot.core.config import settings
 
 logger = logging.getLogger(__name__)
 
 
-def get_dense_embedder() -> HuggingFaceEmbeddings:
+def get_dense_embedder() -> OllamaEmbeddings:
     """
-    Returns the local Hugging Face dense embedding model.
+    Returns the Ollama dense embedding model.
 
     Used by both the ingestion pipeline and the RAG retriever.
     """
     logger.info(
-        "Loading embedding model: %s on %s",
+        "Loading embedding model: %s from %s",
         settings.EMBEDDING_MODEL,
-        settings.EMBEDDING_DEVICE,
+        settings.OLLAMA_BASE_URL,
     )
 
-    return HuggingFaceEmbeddings(
-        model_name=settings.EMBEDDING_MODEL,
-        model_kwargs={
-            "device": settings.EMBEDDING_DEVICE,
-        },
-        encode_kwargs={
-            "normalize_embeddings": True,
-            "batch_size": settings.EMBEDDING_BATCH_SIZE,
-        },
+    return OllamaEmbeddings(
+        model=settings.EMBEDDING_MODEL,
+        base_url=settings.OLLAMA_BASE_URL,
     )

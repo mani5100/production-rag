@@ -4,7 +4,7 @@ import os
 
 from langchain_core.messages import trim_messages
 from langchain_core.messages.utils import count_tokens_approximately
-from langchain_openai import ChatOpenAI
+from langchain_ollama import ChatOllama
 from langchain_community.tools.tavily_search import TavilySearchResults
 from nxb_chatbot.rag.prompts import guardrail_prompt
 from nxb_chatbot.core.config import settings
@@ -21,16 +21,14 @@ logger = logging.getLogger(__name__)
 #     api_key=settings.OPENAI_API_KEY,
 # )
 
-llm = ChatOpenAI(
+# LLM instance
+llm = ChatOllama(
     model=settings.LLM_MODEL,
     temperature=settings.LLM_TEMPERATURE,
-    max_tokens=settings.LLM_MAX_TOKENS,
-    api_key=settings.GROQ_API_KEY,
-    base_url=settings.GROQ_BASE_URL,
-    max_retries=2,
-    timeout=120,
+    base_url=settings.OLLAMA_BASE_URL,
+    num_ctx=8192,
+    num_predict=settings.LLM_MAX_TOKENS,
 )
-
 # Context Formatter
 
 def format_context(state: ChatState) -> str:
