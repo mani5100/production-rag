@@ -18,3 +18,6 @@ class ChatState(TypedDict):
     meal_data: dict | None
     mis_data: dict | None
     employee_request_data: dict | None
+    retrieval_attempts: int
+    grade_verdict: str | None
+    grade_reason: str | None

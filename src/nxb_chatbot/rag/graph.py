@@ -12,11 +12,13 @@ from nxb_chatbot.rag.nodes import (
     check_mis_status_node,
     conversational_response,
     employee_request_node,
+    grade_documents,
     guardrail,
     meal_subscription_node,
     mis_request_node,
     query_reformulator,
     retriever,
+    rewrite_query,
     web_search,
 )
 from nxb_chatbot.rag.state import ChatState
@@ -85,15 +87,20 @@ def route_after_guardrail(state: ChatState) -> str:
     return "query_reformulator"
 
 
-def route_after_retriever(state: ChatState) -> str:
+def route_after_grading(state: ChatState) -> str:
     """
-    After retriever node:
-    - web_search_used = True  → fallback to web_search
-    - web_search_used = False → go to answer_generator
+    After grade_documents node:
+    - relevant                        → answer_generator
+    - irrelevant, retries remaining   → rewrite_query (loops back to retriever)
+    - irrelevant, retries exhausted   → web_search
     """
-    if state.get("web_search_used"):
+    if state.get("grade_verdict") == "relevant":
+        return "answer_generator"
+
+    if state.get("retrieval_attempts", 0) >= settings.MAX_RETRIEVAL_ATTEMPTS:
         return "web_search"
-    return "answer_generator"
+
+    return "rewrite_query"
 
 # Graph Builder
 def _build_graph() -> StateGraph:
@@ -114,6 +121,8 @@ def _build_graph() -> StateGraph:
     builder.add_node("check_mis_status", check_mis_status_node)
     builder.add_node("employee_request", employee_request_node)
     builder.add_node("check_employee_request_status",check_employee_request_status_node)
+    builder.add_node("grade_documents", grade_documents)
+    builder.add_node("rewrite_query", rewrite_query)
 
     builder.add_node("meal_subscription", meal_subscription_node)
     builder.add_node("check_meal_status", check_meal_status_node)
@@ -155,14 +164,20 @@ def _build_graph() -> StateGraph:
     )
 
     builder.add_edge("query_reformulator", "retriever")
+    builder.add_edge("retriever", "grade_documents")
+
     builder.add_conditional_edges(
-        "retriever",
-        route_after_retriever,
+        "grade_documents",
+        route_after_grading,
         {
-            "web_search": "web_search",
             "answer_generator": "answer_generator",
+            "rewrite_query": "rewrite_query",
+            "web_search": "web_search",
         },
     )
+
+    builder.add_edge("rewrite_query", "retriever")
+    builder.add_edge("web_search", "answer_generator")
 
     builder.add_edge("web_search", "answer_generator")
 

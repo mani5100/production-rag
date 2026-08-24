@@ -51,6 +51,8 @@ class Settings(BaseSettings):
     EMBEDDING_BATCH_SIZE: int = 16
 
     GM_EMAIL: str
+    
+    MAX_RETRIEVAL_ATTEMPTS: int = 2
 
     # Guardrail
     model_config = SettingsConfigDict(

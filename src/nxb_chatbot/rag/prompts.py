@@ -331,3 +331,53 @@ acknowledgement_confirmation_prompt = ChatPromptTemplate.from_messages(
         ("system", ACKNOWLEDGEMENT_CONFIRMATION_SYSTEM_PROMPT),
     ]
 )
+
+
+
+GRADE_SYSTEM_PROMPT = """You are a grading assistant for a retrieval-augmented generation system.
+
+Given a user's question and a set of retrieved document chunks, decide whether the
+chunks contain enough information to answer the question.
+
+Rules:
+- Grade "relevant" only if the chunks actually contain information that answers the question.
+- Grade "irrelevant" if the chunks are off-topic, incomplete, or don't address the question.
+- Be strict. Partial or tangential matches should be graded "irrelevant".
+- Give a short, specific reason. It will be used to rewrite the search query if needed.
+
+Question:
+{question}
+
+Retrieved context:
+{context}
+"""
+
+grade_prompt = ChatPromptTemplate.from_messages(
+    [
+        ("system", GRADE_SYSTEM_PROMPT),
+    ]
+)
+
+
+REWRITE_SYSTEM_PROMPT = """You are a query rewriting assistant for a retrieval system.
+
+The previous search query below did not retrieve documents that answered the
+user's original question. Rewrite the query so it is more likely to match
+relevant content, using different terminology, a narrower or broader framing,
+or wording more likely to appear in official company documents.
+
+Rules:
+- Preserve the original intent of the question exactly.
+- Do not invent details that were not in the original question.
+- Return ONLY the rewritten query. No explanation, no preamble.
+
+Original question: {original_question}
+Previous query: {previous_query}
+Why it failed: {grade_reason}
+"""
+
+rewrite_prompt = ChatPromptTemplate.from_messages(
+    [
+        ("system", REWRITE_SYSTEM_PROMPT),
+    ]
+)

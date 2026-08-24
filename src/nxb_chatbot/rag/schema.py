@@ -92,3 +92,16 @@ class AcknowledgementConfirmationDecision(BaseModel):
     ]
 
     response: str
+    
+class GradeDocuments(BaseModel):
+    """
+    CRAG grading verdict: whether retrieved_docs actually answer the question.
+    """
+
+    verdict: Literal["relevant", "irrelevant"]
+    reason: str = Field(
+        description=(
+            "Short, specific explanation for the verdict. Used to inform "
+            "the query rewrite if the verdict is irrelevant."
+        )
+    )

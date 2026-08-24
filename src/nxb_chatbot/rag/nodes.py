@@ -16,6 +16,7 @@ from nxb_chatbot.rag.prompts import (
     gm_acknowledgement_prompt,
     rag_prompt,
     reformulation_prompt,
+    rewrite_prompt,
 )
 from nxb_chatbot.rag.reranker import get_multi_query_retriever, get_reranking_retriever
 from nxb_chatbot.rag.schema import (
@@ -30,11 +31,13 @@ from nxb_chatbot.rag.services import (
     _extract_tracking_data,
     _merge_non_null_values,
     format_context,
+    get_grading_chain,
     get_guardrail_chain,
     get_tavily_search,
     llm,
     trim_conversation,
 )
+
 from nxb_chatbot.rag.state import ChatState
 from nxb_chatbot.vector_store.qdrant_client import get_vector_store
 
@@ -164,7 +167,13 @@ def query_reformulator(state: ChatState) -> dict:
 
     if len(messages) == 1:
         logger.info("First turn — skipping reformulation.")
-        return {"standalone_query": current_question}
+        return {
+            "standalone_query": current_question,
+            "web_search_used": False,
+            "retrieval_attempts": 0,
+            "grade_verdict": None,
+            "grade_reason": None,
+        }
 
     logger.info("Follow-up turn — reformulating query.")
 
@@ -179,16 +188,22 @@ def query_reformulator(state: ChatState) -> dict:
     standalone_query = response.content.strip()
     logger.info(f"Reformulated query: {standalone_query}")
 
-    return {"standalone_query": standalone_query}
+    return {
+        "standalone_query": standalone_query,
+        "web_search_used": False,
+        "retrieval_attempts": 0,
+        "grade_verdict": None,
+        "grade_reason": None,
+    }
 
 
 # Node 3 — Retriever
+
 def retriever(state: ChatState) -> dict:
     """
-    Hybrid search against Qdrant using standalone_query.
-    Applies metadata filters if set in state.
-    Reranks results and checks score threshold.
-    Sets web_search_used = True if no relevant chunks found.
+    Hybrid search against Qdrant using standalone_query, with RAG Fusion
+    query expansion and FlashRank reranking. Relevance grading now
+    happens in grade_documents, not here.
     """
     query = state["standalone_query"]
     filters = state.get("retrieval_filters")
@@ -210,7 +225,6 @@ def retriever(state: ChatState) -> dict:
     reranking_retriever = get_reranking_retriever(expanded_retriever)
     docs = reranking_retriever.invoke(query)
 
-    # Convert to serializable dicts + fix numpy types
     serializable_docs = [
         {
             "page_content": doc.page_content,
@@ -222,33 +236,69 @@ def retriever(state: ChatState) -> dict:
         for doc in docs
     ]
 
-    # Check if any chunk meets the relevance threshold
-    max_score = max(
-        (d["metadata"].get("relevance_score", 0.0) for d in serializable_docs),
-        default=0.0,
-    )
+    logger.info(f"Retrieved and reranked → {len(serializable_docs)} chunks.")
 
-    web_search_needed = max_score < settings.RERANK_SCORE_THRESHOLD
+    return {"retrieved_docs": serializable_docs}
 
-    if web_search_needed:
-        logger.info(
-            f"Max rerank score {max_score:.4f} below threshold "
-            f"{settings.RERANK_SCORE_THRESHOLD} — will trigger web search."
-        )
+# Node — Grade Documents (CRAG)
+def grade_documents(state: ChatState) -> dict:
+    """
+    Judges whether retrieved_docs are sufficient to answer standalone_query.
+    Increments retrieval_attempts. Routing off this node's output decides
+    whether to proceed to generation, loop back through a rewrite, or
+    fall back to web search.
+    """
+    query = state["standalone_query"]
+    docs = state.get("retrieved_docs", [])
+    attempts = state.get("retrieval_attempts", 0) + 1
+
+    if not docs:
+        logger.info("CRAG grade: no documents retrieved.")
+        verdict, reason = "irrelevant", "No documents were retrieved."
     else:
-        logger.info(
-            f"Retrieved and reranked → {len(serializable_docs)} chunks. "
-            f"Max score: {max_score:.4f}"
-        )
+        context = "\n\n".join(d["page_content"] for d in docs)
+        chain = get_grading_chain()
+        result = chain.invoke({"question": query, "context": context})
+        verdict, reason = result.verdict, result.reason
+        logger.info(f"CRAG grade (attempt {attempts}): {verdict} — {reason}")
 
     return {
-        "retrieved_docs": serializable_docs,
-        "web_search_used": web_search_needed,
+        "grade_verdict": verdict,
+        "grade_reason": reason,
+        "retrieval_attempts": attempts,
     }
 
 
-# Node 4 — Web Search
+# Node — Rewrite Query (CRAG)
+def rewrite_query(state: ChatState) -> dict:
+    """
+    Reformulates standalone_query after a failed grading, informed by
+    the grader's stated reason for rejecting the previous retrieval.
+    Loops back to retriever.
+    """
+    original_question = state["messages"][-1].content
+    previous_query = state["standalone_query"]
+    grade_reason = state.get("grade_reason") or "No relevant information found."
 
+    chain = rewrite_prompt | llm
+    response = chain.invoke(
+        {
+            "original_question": original_question,
+            "previous_query": previous_query,
+            "grade_reason": grade_reason,
+        }
+    )
+
+    new_query = response.content.strip()
+    logger.info(
+        f"CRAG rewrite (attempt {state.get('retrieval_attempts', 0)}): "
+        f"'{previous_query}' → '{new_query}'"
+    )
+
+    return {"standalone_query": new_query}
+
+
+# Node 4 — Web Search
 def web_search(state: ChatState) -> dict:
     """
     Fallback when RAG retrieval score is below threshold.
@@ -280,7 +330,7 @@ def web_search(state: ChatState) -> dict:
 
     logger.info(f"Web search returned {len(web_docs)} results.")
 
-    return {"retrieved_docs": web_docs}
+    return {"retrieved_docs": web_docs, "web_search_used": True}
 
 # Node 5 — Answer Generator
 

@@ -6,9 +6,9 @@ from langchain_core.messages import trim_messages
 from langchain_core.messages.utils import count_tokens_approximately
 from langchain_ollama import ChatOllama
 from langchain_community.tools.tavily_search import TavilySearchResults
-from nxb_chatbot.rag.prompts import guardrail_prompt
+from nxb_chatbot.rag.prompts import guardrail_prompt, grade_prompt
 from nxb_chatbot.core.config import settings
-from nxb_chatbot.rag.schema import GuardrailResult
+from nxb_chatbot.rag.schema import GuardrailResult,  GradeDocuments
 from nxb_chatbot.rag.state import ChatState
 
 logger = logging.getLogger(__name__)
@@ -82,6 +82,13 @@ def get_guardrail_chain():
     Returns GuardrailResult with passed: bool and reason: str.
     """
     return guardrail_prompt | llm.with_structured_output(GuardrailResult)
+
+def get_grading_chain():
+    """
+    Returns a structured output chain for CRAG document grading.
+    Returns GradeDocuments with verdict: 'relevant' | 'irrelevant' and reason: str.
+    """
+    return grade_prompt | llm.with_structured_output(GradeDocuments)
 
 
 def _plain_text_to_html(value: str) -> str:
