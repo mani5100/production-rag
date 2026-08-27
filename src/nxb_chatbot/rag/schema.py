@@ -119,3 +119,28 @@ class QueryReformulation(BaseModel):
             "Split independent information needs into separate queries."
         )
     )
+    
+class AnswerReflection(BaseModel):
+    grounded: bool = Field(
+        description="Whether all factual claims in the generated answer are supported by the retrieved context."
+    )
+
+    complete: bool = Field(
+        description="Whether the generated answer addresses all parts of the user's question."
+    )
+
+    relevant: bool = Field(
+        description="Whether the generated answer directly answers the user's question without unnecessary or unrelated content."
+    )
+
+    action: Literal["pass", "regenerate", "retrieve_again"] = Field(
+        description=(
+            "pass: answer is acceptable; "
+            "regenerate: retrieved context is sufficient but the answer itself is flawed or incomplete; "
+            "retrieve_again: retrieved context is insufficient to answer the question properly."
+        )
+    )
+
+    feedback: str = Field(
+        description="Concise explanation of what is wrong and what should be improved."
+    )

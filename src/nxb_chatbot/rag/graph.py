@@ -20,6 +20,7 @@ from nxb_chatbot.rag.nodes import (
     retriever,
     rewrite_query,
     web_search,
+    reflect_answer,
 )
 from nxb_chatbot.rag.state import ChatState
 
@@ -102,6 +103,57 @@ def route_after_grading(state: ChatState) -> str:
 
     return "rewrite_query"
 
+def route_after_reflection(state: ChatState) -> str:
+    """
+    Routes after Self-RAG reflection.
+
+    pass           -> END
+    regenerate     -> answer_generator
+    retrieve_again -> rewrite_query
+
+    reflection_attempts provides the overall loop safeguard.
+    """
+
+    action = state.get("reflection_action")
+
+    reflection_attempts = state.get("reflection_attempts", 0)
+    retrieval_attempts = state.get("retrieval_attempts", 0)
+
+    logger.info(
+        f"Reflection routing → action={action}, "
+        f"reflection_attempts={reflection_attempts}, "
+        f"retrieval_attempts={retrieval_attempts}"
+    )
+
+    # Hard stop against infinite Self-RAG loops
+    if reflection_attempts >= 3:
+        logger.warning(
+            "Maximum reflection attempts reached. Ending."
+        )
+        return "end"
+
+    if action == "pass":
+        return "end"
+
+    if action == "regenerate":
+        return "regenerate"
+
+    if action == "retrieve_again":
+        if retrieval_attempts >= settings.MAX_RETRIEVAL_ATTEMPTS:
+            logger.warning(
+                "Maximum retrieval attempts reached."
+            )
+            return "end"
+
+        return "retrieve_again"
+
+    logger.warning(
+        f"Unknown reflection action '{action}'. Ending safely."
+    )
+
+    return "end"
+
+
 # Graph Builder
 def _build_graph() -> StateGraph:
     """
@@ -116,6 +168,7 @@ def _build_graph() -> StateGraph:
     builder.add_node("retriever", retriever)
     builder.add_node("web_search", web_search)
     builder.add_node("answer_generator", answer_generator)
+    builder.add_node("reflect_answer", reflect_answer)
     builder.add_node("conversational_response", conversational_response)
     builder.add_node("mis_request", mis_request_node)
     builder.add_node("check_mis_status", check_mis_status_node)
@@ -175,13 +228,23 @@ def _build_graph() -> StateGraph:
             "web_search": "web_search",
         },
     )
+    
 
     builder.add_edge("rewrite_query", "retriever")
     builder.add_edge("web_search", "answer_generator")
+    builder.add_edge("answer_generator","reflect_answer")
+
+    builder.add_conditional_edges(
+    "reflect_answer",
+    route_after_reflection,
+    {
+        "end": END,
+        "regenerate": "answer_generator",
+        "retrieve_again": "rewrite_query",
+    },
+)
 
 
-
-    builder.add_edge("answer_generator", END)
     builder.add_edge("meal_subscription", END)
     builder.add_edge("check_meal_status", END)
     builder.add_edge("mis_request", END)

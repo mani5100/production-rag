@@ -15,15 +15,18 @@ class ChatState(TypedDict):
     standalone_query: str | None
     retrieval_queries: list[str] | None
 
+    generated_answer: str | None
+
     guardrail_passed: bool | None
     web_search_used: bool | None
-
-    route_intent: str | None
-    meal_intent: str | None
-    meal_data: dict | None
-    mis_data: dict | None
-    employee_request_data: dict | None
 
     retrieval_attempts: int
     grade_verdict: str | None
     grade_reason: str | None
+
+    reflection_action: str | None
+    reflection_reason: str | None
+    reflection_feedback: str | None
+
+    generation_attempts: int
+    reflection_attempts: int

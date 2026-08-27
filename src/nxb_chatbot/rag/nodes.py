@@ -17,10 +17,12 @@ from nxb_chatbot.rag.prompts import (
     rag_prompt,
     reformulation_prompt,
     rewrite_prompt,
+    reflection_prompt
 )
 from nxb_chatbot.rag.reranker import get_multi_query_retriever, get_reranking_retriever
 from nxb_chatbot.rag.schema import (
     AcknowledgementConfirmationDecision,
+    AnswerReflection,
     EmployeeConfirmationDecision,
     EmployeeRequestDecision,
     GMAcknowledgementResult,
@@ -335,15 +337,18 @@ def grade_documents(state: ChatState) -> dict:
 # Node — Rewrite Query (CRAG)
 def rewrite_query(state: ChatState) -> dict:
     """
-    Reformulates standalone_query after a failed grading, informed by
-    the grader's stated reason for rejecting the previous retrieval.
+    Reformulates standalone_query after a failed grading or reflection,
+    informed by the grader's stated reason for rejecting the previous retrieval.
     Loops back to retriever.
     """
+
     original_question = state["messages"][-1].content
     previous_query = state["standalone_query"]
-    grade_reason = state.get("grade_reason") or "No relevant information found."
+
+    grade_reason = (state.get("reflection_feedback") or state.get("grade_reason") or "No relevant information found.")
 
     chain = rewrite_prompt | llm
+
     response = chain.invoke(
         {
             "original_question": original_question,
@@ -353,12 +358,19 @@ def rewrite_query(state: ChatState) -> dict:
     )
 
     new_query = response.content.strip()
+
     logger.info(
         f"CRAG rewrite (attempt {state.get('retrieval_attempts', 0)}): "
         f"'{previous_query}' → '{new_query}'"
     )
 
-    return {"standalone_query": new_query}
+    return {
+        "standalone_query": new_query,
+        "retrieval_queries": [new_query],
+        "reflection_action": None,
+        "reflection_reason": None,
+        "reflection_feedback": None,
+    }
 
 
 # Node 4 — Web Search
@@ -396,29 +408,43 @@ def web_search(state: ChatState) -> dict:
     return {"retrieved_docs": web_docs, "web_search_used": True}
 
 # Node 5 — Answer Generator
-
 def answer_generator(state: ChatState) -> dict:
     """
-    Generates final answer using retrieved context + trimmed chat history.
+    Generates an answer using retrieved context + trimmed chat history.
+
+    If reflection feedback exists, it is passed into the prompt so the
+    regenerated answer can correct the issues identified by the critic.
     """
+
     context = format_context(state)
     trimmed_messages = trim_conversation(state)
 
-    logger.info("Generating answer.")
+    reflection_feedback = state.get("reflection_feedback")
+    generation_attempts = state.get("generation_attempts", 0) + 1
+
+    logger.info(
+        f"Generating answer. Attempt #{generation_attempts}"
+    )
 
     chain = rag_prompt | llm
-    response = chain.invoke(
-        {
-            "context": context,
-            "messages": trimmed_messages,
-        }
-    )
+
+    invoke_payload = {
+        "context": context,
+        "messages": trimmed_messages,
+        "reflection_feedback": reflection_feedback or "None",
+    }
+
+    response = chain.invoke(invoke_payload)
+
+    answer_text = response.content.strip()
 
     logger.info("Answer generated.")
 
-    return {"messages": [response]}
-
-
+    return {
+        "messages": [response],
+        "generated_answer": answer_text,
+        "generation_attempts": generation_attempts,
+    }
 def _get_latest_human_message(messages: list) -> str:
     """Returns the content of the most recent human message."""
     for msg in reversed(messages):
@@ -1411,4 +1437,57 @@ def check_employee_request_status_node(state: ChatState) -> dict:
                 )
             )
         ],
+    }
+    
+    
+def reflect_answer(state: ChatState) -> dict:
+    """
+    Critique the generated answer against the retrieved context
+    and decide whether to pass, regenerate, or retrieve again.
+    """
+
+    question = state["standalone_query"]
+    answer = state.get("generated_answer") or ""
+
+    docs = state.get("retrieved_docs", [])
+
+    context = "\n\n".join(
+        doc.get("page_content", "")
+        for doc in docs
+        if doc.get("page_content")
+    )
+
+    logger.info("Reflecting on generated answer.")
+    structured_llm = llm.with_structured_output(AnswerReflection)
+    chain = reflection_prompt | structured_llm
+
+    result = chain.invoke(
+        {
+            "question": question,
+            "context": context,
+            "answer": answer,
+        }
+    )
+
+    reflection_attempts = state.get("reflection_attempts", 0) + 1
+
+    logger.info(
+        f"Reflection result → "
+        f"action={result.action}, "
+        f"grounded={result.grounded}, "
+        f"complete={result.complete}, "
+        f"relevant={result.relevant}"
+    )
+
+    logger.info(f"Reflection feedback: {result.feedback}")
+
+    return {
+        "reflection_action": result.action,
+        "reflection_reason": (
+            f"grounded={result.grounded}, "
+            f"complete={result.complete}, "
+            f"relevant={result.relevant}"
+        ),
+        "reflection_feedback": result.feedback,
+        "reflection_attempts": reflection_attempts,
     }
