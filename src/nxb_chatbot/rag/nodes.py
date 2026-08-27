@@ -3,6 +3,7 @@ import json
 import logging
 
 from langchain_core.messages import AIMessage
+from langchain_core.runnables import RunnableConfig
 from langgraph.types import interrupt
 
 from nxb_chatbot.core.config import settings
@@ -67,14 +68,14 @@ OFF_TOPIC_RESPONSE = (
 
 # Node 1 — Guardrail
 
-def guardrail(state: ChatState) -> dict:
+def guardrail(state: ChatState, config: RunnableConfig) -> dict:
     messages = state["messages"]
     question = messages[-1].content
 
     logger.info(f"Running guardrail for: {question}")
 
     chain = get_guardrail_chain()
-    result: GuardrailResult = chain.invoke({"question": question})
+    result: GuardrailResult = chain.invoke({"question": question}, config=config)
 
     logger.info(
         f"Guardrail: passed={result.passed} | intent={result.intent} | reason={result.reason}"
@@ -92,11 +93,11 @@ def guardrail(state: ChatState) -> dict:
     "route_intent": result.intent,
 }
 
-def conversational_response(state: ChatState) -> dict:
+def conversational_response(state: ChatState, config: RunnableConfig) -> dict:
     messages = trim_conversation(state)
 
     response = (conversational_prompt | llm).invoke(
-        {"messages": messages}
+        {"messages": messages}, config=config
     )
 
     return {
@@ -106,7 +107,9 @@ def conversational_response(state: ChatState) -> dict:
     }
 
 
-def _parse_meal_preference(user_input: str) -> str | None:
+def _parse_meal_preference(
+    user_input: str, config: RunnableConfig | None = None
+) -> str | None:
     """
     Uses the LLM to extract meal preference from any natural language input.
     Falls back to keyword matching in case LLM echoes extra words.
@@ -121,7 +124,7 @@ def _parse_meal_preference(user_input: str) -> str | None:
         f"If you cannot determine their choice, return ONLY: UNCLEAR"
     )
 
-    response = llm.invoke(prompt)
+    response = llm.invoke(prompt, config=config)
     parsed = response.content.strip()
 
     # Exact match first
@@ -160,7 +163,7 @@ def _parse_mis_issue_type(user_input: str) -> str | None:
 
 # Node 2 — Query Reformulator
 
-def query_reformulator(state: ChatState) -> dict:
+def query_reformulator(state: ChatState, config: RunnableConfig) -> dict:
     """
     Reformulate the user question into:
     1. A complete standalone query.
@@ -179,7 +182,8 @@ def query_reformulator(state: ChatState) -> dict:
         {
             "messages": messages[:-1],
             "question": current_question,
-        }
+        },
+        config=config,
     )
 
     standalone_query = response.standalone_query.strip()
@@ -207,7 +211,7 @@ def query_reformulator(state: ChatState) -> dict:
 
 # Node 3 — Retriever
 
-def retriever(state: ChatState) -> dict:
+def retriever(state: ChatState, config: RunnableConfig) -> dict:
     """
     Hybrid search against Qdrant using one or more retrieval queries,
     with RAG Fusion query expansion and FlashRank reranking.
@@ -256,7 +260,7 @@ def retriever(state: ChatState) -> dict:
     for query in queries:
         logger.info(f"Running retrieval query: {query}")
 
-        docs = reranking_retriever.invoke(query)
+        docs = reranking_retriever.invoke(query, config=config)
 
         logger.info(
             f"Query returned {len(docs)} reranked chunks."
@@ -306,7 +310,7 @@ def retriever(state: ChatState) -> dict:
     }
 
 # Node — Grade Documents (CRAG)
-def grade_documents(state: ChatState) -> dict:
+def grade_documents(state: ChatState, config: RunnableConfig) -> dict:
     """
     Judges whether retrieved_docs are sufficient to answer standalone_query.
     Increments retrieval_attempts. Routing off this node's output decides
@@ -323,7 +327,7 @@ def grade_documents(state: ChatState) -> dict:
     else:
         context = "\n\n".join(d["page_content"] for d in docs)
         chain = get_grading_chain()
-        result = chain.invoke({"question": query, "context": context})
+        result = chain.invoke({"question": query, "context": context}, config=config)
         verdict, reason = result.verdict, result.reason
         logger.info(f"CRAG grade (attempt {attempts}): {verdict} — {reason}")
 
@@ -335,7 +339,7 @@ def grade_documents(state: ChatState) -> dict:
 
 
 # Node — Rewrite Query (CRAG)
-def rewrite_query(state: ChatState) -> dict:
+def rewrite_query(state: ChatState, config: RunnableConfig) -> dict:
     """
     Reformulates standalone_query after a failed grading or reflection,
     informed by the grader's stated reason for rejecting the previous retrieval.
@@ -354,7 +358,8 @@ def rewrite_query(state: ChatState) -> dict:
             "original_question": original_question,
             "previous_query": previous_query,
             "grade_reason": grade_reason,
-        }
+        },
+        config=config,
     )
 
     new_query = response.content.strip()
@@ -374,7 +379,7 @@ def rewrite_query(state: ChatState) -> dict:
 
 
 # Node 4 — Web Search
-def web_search(state: ChatState) -> dict:
+def web_search(state: ChatState, config: RunnableConfig) -> dict:
     """
     Fallback when RAG retrieval score is below threshold.
     Scopes search to NextBridge by injecting company name into query.
@@ -386,7 +391,7 @@ def web_search(state: ChatState) -> dict:
     logger.info(f"Triggering web search for: {scoped_query}")
 
     tavily = get_tavily_search()
-    results = tavily.invoke(scoped_query)
+    results = tavily.invoke(scoped_query, config=config)
 
     web_docs = [
         {
@@ -408,7 +413,7 @@ def web_search(state: ChatState) -> dict:
     return {"retrieved_docs": web_docs, "web_search_used": True}
 
 # Node 5 — Answer Generator
-def answer_generator(state: ChatState) -> dict:
+def answer_generator(state: ChatState, config: RunnableConfig) -> dict:
     """
     Generates an answer using retrieved context + trimmed chat history.
 
@@ -434,7 +439,7 @@ def answer_generator(state: ChatState) -> dict:
         "reflection_feedback": reflection_feedback or "None",
     }
 
-    response = chain.invoke(invoke_payload)
+    response = chain.invoke(invoke_payload, config=config)
 
     answer_text = response.content.strip()
 
@@ -456,7 +461,7 @@ def _get_latest_human_message(messages: list) -> str:
 # Node 6 — Meal subscription
 # ---------------------------------------------------------------------------
 
-def meal_subscription_node(state: ChatState) -> dict:
+def meal_subscription_node(state: ChatState, config: RunnableConfig) -> dict:
     """
     meal_data.step tracks where we are in the flow.
     route_entry bypasses guardrail so mid-flow messages reach this node directly.
@@ -484,7 +489,7 @@ def meal_subscription_node(state: ChatState) -> dict:
 
     # ── Step 2: Parse meal preference — ask for name ────────────────────────
     if step == "waiting_preference":
-        preference = _parse_meal_preference(latest)
+        preference = _parse_meal_preference(latest, config=config)
         if not preference:
             return {
                 "meal_data": {**meal},
@@ -514,11 +519,14 @@ def meal_subscription_node(state: ChatState) -> dict:
 
         logger.info(f"Sending meal subscription: {name}, {emp_id}, {preference}")
 
-        result = send_meal_subscription_email.invoke({
-            "name": name,
-            "employee_id": emp_id,
-            "preference": preference,
-        })
+        result = send_meal_subscription_email.invoke(
+            {
+                "name": name,
+                "employee_id": emp_id,
+                "preference": preference,
+            },
+            config=config,
+        )
 
         tthread_id: str | None = None
         request_reference: str | None = None
@@ -560,7 +568,7 @@ def meal_subscription_node(state: ChatState) -> dict:
 
 # Node 7 — Check meal subscription status
 
-def check_meal_status_node(state: ChatState) -> dict:
+def check_meal_status_node(state: ChatState, config: RunnableConfig) -> dict:
     """
     Checks for a department reply.
     If reply found: shows it and asks for ack confirmation.
@@ -609,10 +617,13 @@ def check_meal_status_node(state: ChatState) -> dict:
     # ── Waiting for yes/no on acknowledgment ────────────────────────────────
     if meal.get("waiting_for_ack"):
         if latest.strip().lower() in ("yes", "y"):
-            send_meal_acknowledgment.invoke({
-                "name": name,
-                "employee_id": emp_id,
-            })
+            send_meal_acknowledgment.invoke(
+                {
+                    "name": name,
+                    "employee_id": emp_id,
+                },
+                config=config,
+            )
             return {
                 "meal_data": {**meal, "acknowledged": True, "waiting_for_ack": False},
                 "messages": [AIMessage(
@@ -628,7 +639,7 @@ def check_meal_status_node(state: ChatState) -> dict:
 
     # ── Check for reply via @tool ────────────────────────────────────────────
     logger.info(f"Checking meal reply for thread_id={thread_id}")
-    reply_body = check_meal_reply.invoke({"thread_id": thread_id})
+    reply_body = check_meal_reply.invoke({"thread_id": thread_id}, config=config)
 
     if reply_body == "TRACKING_UNAVAILABLE":
         return {
@@ -678,7 +689,7 @@ def check_meal_status_node(state: ChatState) -> dict:
     }
     
 
-def mis_request_node(state: ChatState) -> dict:
+def mis_request_node(state: ChatState, config: RunnableConfig) -> dict:
     mis = state.get("mis_data") or {}
     latest = _get_latest_human_message(state["messages"])
 
@@ -772,7 +783,8 @@ def mis_request_node(state: ChatState) -> dict:
                 "issue_type": issue_type,
                 "name": name,
                 "employee_id": employee_id,
-            }
+            },
+            config=config,
         )
 
         thread_id: str | None = None
@@ -828,7 +840,7 @@ def mis_request_node(state: ChatState) -> dict:
     }
     
     
-def check_mis_status_node(state: ChatState) -> dict:
+def check_mis_status_node(state: ChatState, config: RunnableConfig) -> dict:
     mis = state.get("mis_data") or {}
     latest = _get_latest_human_message(state["messages"])
 
@@ -877,7 +889,8 @@ def check_mis_status_node(state: ChatState) -> dict:
                 {
                     "name": name,
                     "employee_id": employee_id,
-                }
+                },
+                config=config,
             )
 
             return {
@@ -908,7 +921,7 @@ def check_mis_status_node(state: ChatState) -> dict:
             ],
         }
 
-    reply_body = check_mis_reply.invoke({"thread_id": thread_id})
+    reply_body = check_mis_reply.invoke({"thread_id": thread_id}, config=config)
 
     if reply_body == "TRACKING_UNAVAILABLE":
         return {
@@ -969,7 +982,7 @@ def check_mis_status_node(state: ChatState) -> dict:
 # Leave / Work From Home autonomous request node
 # ---------------------------------------------------------------------------
 
-def employee_request_node(state: ChatState) -> dict:
+def employee_request_node(state: ChatState, config: RunnableConfig) -> dict:
     """
     Autonomous LLM-driven Leave / Work From Home conversation.
 
@@ -1010,7 +1023,8 @@ def employee_request_node(state: ChatState) -> dict:
         confirmation = confirmation_chain.invoke(
             {
                 "latest_message": latest,
-            }
+            },
+            config=config,
         )
 
         if confirmation.action == "confirmed":
@@ -1043,7 +1057,8 @@ def employee_request_node(state: ChatState) -> dict:
                         "start_date": request_data["start_date"],
                         "end_date": request_data["end_date"],
                         "reason": request_data.get("reason", ""),
-                    }
+                    },
+                    config=config,
                 )
 
                 if tool_result.startswith("ERROR:"):
@@ -1126,7 +1141,8 @@ def employee_request_node(state: ChatState) -> dict:
             ),
             "latest_message": latest,
             "messages": state["messages"],
-        }
+        },
+        config=config,
     )
 
     update_values = decision.model_dump()
@@ -1196,7 +1212,9 @@ def employee_request_node(state: ChatState) -> dict:
         ],
     }
     
-def check_employee_request_status_node(state: ChatState) -> dict:
+def check_employee_request_status_node(
+    state: ChatState, config: RunnableConfig
+) -> dict:
     """
     Checks the GM response and uses the LLM to create and manage a
     context-aware acknowledgement.
@@ -1255,7 +1273,8 @@ def check_employee_request_status_node(state: ChatState) -> dict:
         confirmation = confirmation_chain.invoke(
             {
                 "latest_message": latest,
-            }
+            },
+            config=config,
         )
 
         if confirmation.action == "send":
@@ -1269,7 +1288,8 @@ def check_employee_request_status_node(state: ChatState) -> dict:
                     {
                         "thread_id": thread_id,
                         "acknowledgement": acknowledgement,
-                    }
+                    },
+                    config=config,
                 )
             )
 
@@ -1333,7 +1353,8 @@ def check_employee_request_status_node(state: ChatState) -> dict:
                         "employee_id",
                         "N/A",
                     ),
-                }
+                },
+                config=config,
             )
 
             return {
@@ -1366,7 +1387,8 @@ def check_employee_request_status_node(state: ChatState) -> dict:
     gm_reply = check_gm_employee_request_reply.invoke(
         {
             "thread_id": thread_id,
-        }
+        },
+        config=config,
     )
 
     if gm_reply == "TRACKING_UNAVAILABLE":
@@ -1414,7 +1436,8 @@ def check_employee_request_status_node(state: ChatState) -> dict:
                 "employee_id",
                 "N/A",
             ),
-        }
+        },
+        config=config,
     )
 
     return {
@@ -1440,7 +1463,7 @@ def check_employee_request_status_node(state: ChatState) -> dict:
     }
     
     
-def reflect_answer(state: ChatState) -> dict:
+def reflect_answer(state: ChatState, config: RunnableConfig) -> dict:
     """
     Critique the generated answer against the retrieved context
     and decide whether to pass, regenerate, or retrieve again.
@@ -1466,7 +1489,8 @@ def reflect_answer(state: ChatState) -> dict:
             "question": question,
             "context": context,
             "answer": answer,
-        }
+        },
+        config=config,
     )
 
     reflection_attempts = state.get("reflection_attempts", 0) + 1
