@@ -159,25 +159,16 @@ def _parse_mis_issue_type(user_input: str) -> str | None:
 
 def query_reformulator(state: ChatState) -> dict:
     """
-    First turn  → return original question as standalone_query.
-    Follow-up   → reformulate using chat history.
+    Reformulate every query into a standalone retrieval-friendly query.
     """
+
     messages = state["messages"]
     current_question = messages[-1].content
 
-    if len(messages) == 1:
-        logger.info("First turn — skipping reformulation.")
-        return {
-            "standalone_query": current_question,
-            "web_search_used": False,
-            "retrieval_attempts": 0,
-            "grade_verdict": None,
-            "grade_reason": None,
-        }
-
-    logger.info("Follow-up turn — reformulating query.")
+    logger.info(f"Reformulating query: {current_question}")
 
     chain = reformulation_prompt | llm
+
     response = chain.invoke(
         {
             "messages": messages[:-1],
@@ -186,6 +177,7 @@ def query_reformulator(state: ChatState) -> dict:
     )
 
     standalone_query = response.content.strip()
+
     logger.info(f"Reformulated query: {standalone_query}")
 
     return {
@@ -195,7 +187,6 @@ def query_reformulator(state: ChatState) -> dict:
         "grade_verdict": None,
         "grade_reason": None,
     }
-
 
 # Node 3 — Retriever
 

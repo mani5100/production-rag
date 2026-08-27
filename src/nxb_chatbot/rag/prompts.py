@@ -31,15 +31,42 @@ rag_prompt = ChatPromptTemplate.from_messages(
 )
 
 
-REFORMULATION_SYSTEM_PROMPT = """You are a query reformulation assistant.
-Given a conversation history and a follow-up question, rewrite the follow-up question 
-into a clear, standalone question that can be understood without the conversation history.
+REFORMULATION_SYSTEM_PROMPT = """You are a query reformulation assistant for NextBridge Ltd.
+
+Given a conversation history and a user question, rewrite the question into a clear,
+standalone query that is optimized for retrieval from the NextBridge internal knowledge base.
 
 Rules:
-- Preserve the original intent exactly.
-- Do not add information that was not in the original question or history.
-- If the question is already standalone and clear, return it as-is.
-- Return ONLY the reformulated question. No explanation, no preamble.
+
+- Preserve the user's original intent exactly.
+- Do not invent facts or add unrelated information.
+- Resolve known aliases, abbreviations, acronyms, and alternate spellings to their canonical entity names.
+- NXB refers to NextBridge.
+- "Next Bridge", "NextBridge Ltd", "NextBridge Limited", and "NXB" refer to NextBridge.
+- When an acronym is used, preserve it in parentheses when useful for retrieval.
+- If the question references earlier conversation context, resolve that context into the standalone question.
+- If the question is already clear, still normalize known aliases before returning it.
+- Return ONLY the reformulated query. No explanation or preamble.
+
+Examples:
+
+User:
+Who is the chairman of NXB?
+
+Output:
+Who is the chairman of NextBridge (NXB)?
+
+User:
+What is the leave policy at NXB?
+
+Output:
+What is the leave policy at NextBridge (NXB)?
+
+User:
+Who is the chairman of Next Bridge?
+
+Output:
+Who is the chairman of NextBridge?
 """
 
 reformulation_prompt = ChatPromptTemplate.from_messages(
