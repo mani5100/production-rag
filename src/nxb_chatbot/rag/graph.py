@@ -179,7 +179,7 @@ def _build_graph() -> StateGraph:
     builder.add_edge("rewrite_query", "retriever")
     builder.add_edge("web_search", "answer_generator")
 
-    builder.add_edge("web_search", "answer_generator")
+
 
     builder.add_edge("answer_generator", END)
     builder.add_edge("meal_subscription", END)
