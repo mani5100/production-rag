@@ -105,3 +105,17 @@ class GradeDocuments(BaseModel):
             "the query rewrite if the verdict is irrelevant."
         )
     )
+    
+class QueryReformulation(BaseModel):
+    standalone_query: str = Field(
+        description=(
+            "The complete user question rewritten as a standalone question."
+        )
+    )
+
+    retrieval_queries: list[str] = Field(
+        description=(
+            "One or more focused retrieval queries. "
+            "Split independent information needs into separate queries."
+        )
+    )

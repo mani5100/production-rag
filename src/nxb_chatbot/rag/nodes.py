@@ -25,6 +25,7 @@ from nxb_chatbot.rag.schema import (
     EmployeeRequestDecision,
     GMAcknowledgementResult,
     GuardrailResult,
+    QueryReformulation,
 )
 from nxb_chatbot.rag.services import (
     _employee_request_view,
@@ -159,7 +160,9 @@ def _parse_mis_issue_type(user_input: str) -> str | None:
 
 def query_reformulator(state: ChatState) -> dict:
     """
-    Reformulate every query into a standalone retrieval-friendly query.
+    Reformulate the user question into:
+    1. A complete standalone query.
+    2. One or more focused retrieval queries.
     """
 
     messages = state["messages"]
@@ -167,7 +170,8 @@ def query_reformulator(state: ChatState) -> dict:
 
     logger.info(f"Reformulating query: {current_question}")
 
-    chain = reformulation_prompt | llm
+    structured_llm = llm.with_structured_output(QueryReformulation)
+    chain = reformulation_prompt | structured_llm
 
     response = chain.invoke(
         {
@@ -176,12 +180,23 @@ def query_reformulator(state: ChatState) -> dict:
         }
     )
 
-    standalone_query = response.content.strip()
+    standalone_query = response.standalone_query.strip()
+
+    retrieval_queries = [
+        query.strip()
+        for query in response.retrieval_queries
+        if query.strip()
+    ]
+
+    if not retrieval_queries:
+        retrieval_queries = [standalone_query]
 
     logger.info(f"Reformulated query: {standalone_query}")
+    logger.info(f"Retrieval queries: {retrieval_queries}")
 
     return {
         "standalone_query": standalone_query,
+        "retrieval_queries": retrieval_queries,
         "web_search_used": False,
         "retrieval_attempts": 0,
         "grade_verdict": None,
@@ -192,17 +207,30 @@ def query_reformulator(state: ChatState) -> dict:
 
 def retriever(state: ChatState) -> dict:
     """
-    Hybrid search against Qdrant using standalone_query, with RAG Fusion
-    query expansion and FlashRank reranking. Relevance grading now
-    happens in grade_documents, not here.
+    Hybrid search against Qdrant using one or more retrieval queries,
+    with RAG Fusion query expansion and FlashRank reranking.
+
+    For multi-intent questions, each retrieval query is searched
+    independently, then results are merged and deduplicated.
+
+    Relevance grading happens in grade_documents.
     """
-    query = state["standalone_query"]
+
+    queries = state.get("retrieval_queries") or [
+        state["standalone_query"]
+    ]
+
     filters = state.get("retrieval_filters")
 
-    logger.info(f"Retrieving docs for query: {query}")
+    logger.info(
+        f"Retrieving docs for {len(queries)} retrieval queries: {queries}"
+    )
 
     vector_store = get_vector_store()
-    search_kwargs = {"k": settings.RETRIEVER_TOP_K}
+
+    search_kwargs = {
+        "k": settings.RETRIEVER_TOP_K
+    }
 
     if filters:
         search_kwargs["filter"] = filters
@@ -212,9 +240,48 @@ def retriever(state: ChatState) -> dict:
         search_kwargs=search_kwargs,
     )
 
-    expanded_retriever = get_multi_query_retriever(base_retriever)
-    reranking_retriever = get_reranking_retriever(expanded_retriever)
-    docs = reranking_retriever.invoke(query)
+    expanded_retriever = get_multi_query_retriever(
+        base_retriever
+    )
+
+    reranking_retriever = get_reranking_retriever(
+        expanded_retriever
+    )
+
+    all_docs = []
+
+    # Retrieve independently for each decomposed query
+    for query in queries:
+        logger.info(f"Running retrieval query: {query}")
+
+        docs = reranking_retriever.invoke(query)
+
+        logger.info(
+            f"Query returned {len(docs)} reranked chunks."
+        )
+
+        all_docs.extend(docs)
+
+    # Deduplicate documents
+    unique_docs = {}
+
+    for doc in all_docs:
+        doc_id = (
+            doc.metadata.get("_id")
+            or (
+                doc.metadata.get("file_name"),
+                doc.metadata.get("page"),
+                doc.page_content[:100],
+            )
+        )
+
+        # Keep the first occurrence.
+        # Since each individual retrieval has already been reranked,
+        # duplicates do not need to be added again.
+        if doc_id not in unique_docs:
+            unique_docs[doc_id] = doc
+
+    docs = list(unique_docs.values())
 
     serializable_docs = [
         {
@@ -227,9 +294,14 @@ def retriever(state: ChatState) -> dict:
         for doc in docs
     ]
 
-    logger.info(f"Retrieved and reranked → {len(serializable_docs)} chunks.")
+    logger.info(
+        f"Retrieved and merged → {len(serializable_docs)} unique chunks "
+        f"from {len(queries)} retrieval queries."
+    )
 
-    return {"retrieved_docs": serializable_docs}
+    return {
+        "retrieved_docs": serializable_docs
+    }
 
 # Node — Grade Documents (CRAG)
 def grade_documents(state: ChatState) -> dict:

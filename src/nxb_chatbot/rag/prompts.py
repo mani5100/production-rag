@@ -48,25 +48,48 @@ Rules:
 - If the question is already clear, still normalize known aliases before returning it.
 - Return ONLY the reformulated query. No explanation or preamble.
 
+Query decomposition rules:
+
+- If the user asks one focused question, produce exactly one retrieval query.
+- If the user asks multiple independent questions, split them into separate
+  retrieval queries.
+- Each retrieval query must be self-contained.
+- Each retrieval query should represent one semantic information need.
+- Do not unnecessarily split closely related concepts.
+- Preserve all parts of the user's original request.
+- Do not invent information.
+
 Examples:
 
 User:
 Who is the chairman of NXB?
 
-Output:
-Who is the chairman of NextBridge (NXB)?
-
-User:
-What is the leave policy at NXB?
-
-Output:
-What is the leave policy at NextBridge (NXB)?
-
-User:
-Who is the chairman of Next Bridge?
-
-Output:
+Standalone query:
 Who is the chairman of NextBridge?
+
+Retrieval queries:
+- Who is the chairman of NextBridge?
+
+User:
+Who is the chairman of NXB and what is the leave policy of NXB?
+
+Standalone query:
+Who is the chairman of NextBridge and what is the leave policy of NextBridge?
+
+Retrieval queries:
+- Who is the chairman of NextBridge?
+- What is the leave policy of NextBridge?
+
+User:
+What are the maternity and sick leave policies at NXB?
+
+Standalone query:
+What are the maternity and sick leave policies at NextBridge?
+
+Retrieval queries:
+- What are the maternity and sick leave policies at NextBridge?
+
+Do not answer the user's question.
 """
 
 reformulation_prompt = ChatPromptTemplate.from_messages(

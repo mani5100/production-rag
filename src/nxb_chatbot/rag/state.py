@@ -8,16 +8,22 @@ from typing_extensions import TypedDict
 
 class ChatState(TypedDict):
     messages: Annotated[list[BaseMessage], add_messages]
+
     retrieved_docs: list[dict]
     retrieval_filters: dict | None
+
     standalone_query: str | None
+    retrieval_queries: list[str] | None
+
     guardrail_passed: bool | None
     web_search_used: bool | None
+
     route_intent: str | None
     meal_intent: str | None
     meal_data: dict | None
     mis_data: dict | None
     employee_request_data: dict | None
+
     retrieval_attempts: int
     grade_verdict: str | None
     grade_reason: str | None
