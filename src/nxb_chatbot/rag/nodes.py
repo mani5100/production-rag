@@ -18,7 +18,8 @@ from nxb_chatbot.rag.prompts import (
     rag_prompt,
     reformulation_prompt,
     rewrite_prompt,
-    reflection_prompt
+    reflection_prompt,
+    adaptive_router_prompt
 )
 from nxb_chatbot.rag.reranker import get_multi_query_retriever, get_reranking_retriever
 from nxb_chatbot.rag.schema import (
@@ -29,6 +30,7 @@ from nxb_chatbot.rag.schema import (
     GMAcknowledgementResult,
     GuardrailResult,
     QueryReformulation,
+    QueryRoute
 )
 from nxb_chatbot.rag.services import (
     _employee_request_view,
@@ -209,6 +211,41 @@ def query_reformulator(state: ChatState, config: RunnableConfig) -> dict:
         "grade_reason": None,
     }
 
+# Node — Adaptive Router
+def adaptive_router(state: ChatState, config: RunnableConfig) -> dict:
+    """
+    Classifies the reformulated query as simple or complex.
+
+    Simple queries can skip CRAG document grading and proceed
+    directly from retrieval to answer generation.
+
+    Complex queries continue through the full CRAG
+    grade -> rewrite -> re-retrieve workflow.
+    """
+    query = state["standalone_query"]
+
+    logger.info(f"Adaptive routing query: {query}")
+
+    structured_llm = llm.with_structured_output(QueryRoute)
+    chain = adaptive_router_prompt | structured_llm
+
+    result = chain.invoke(
+        {
+            "question": query,
+        },
+        config=config,
+    )
+
+    logger.info(
+        f"Adaptive route: {result.route} | reason={result.reason}"
+    )
+
+    return {
+        "query_route": result.route,
+        "routing_reason": result.reason,
+    }
+    
+
 # Node 3 — Retriever
 
 def retriever(state: ChatState, config: RunnableConfig) -> dict:
@@ -372,6 +409,11 @@ def rewrite_query(state: ChatState, config: RunnableConfig) -> dict:
     return {
         "standalone_query": new_query,
         "retrieval_queries": [new_query],
+        "query_route": (
+            "complex"
+            if state.get("reflection_feedback")
+            else state.get("query_route")
+        ),
         "reflection_action": None,
         "reflection_reason": None,
         "reflection_feedback": None,

@@ -21,6 +21,7 @@ from nxb_chatbot.rag.nodes import (
     rewrite_query,
     web_search,
     reflect_answer,
+    adaptive_router,
 )
 from nxb_chatbot.rag.state import ChatState
 
@@ -153,6 +154,19 @@ def route_after_reflection(state: ChatState) -> str:
 
     return "end"
 
+def route_after_retrieval(state: ChatState) -> str:
+    """
+    Route retrieved documents based on adaptive query complexity.
+
+    Simple queries skip CRAG document grading and proceed directly
+    to answer generation.
+
+    Complex queries continue through the full CRAG grading flow.
+    """
+    if state.get("query_route") == "simple":
+        return "answer_generator"
+
+    return "grade_documents"
 
 # Graph Builder
 def _build_graph() -> StateGraph:
@@ -165,6 +179,7 @@ def _build_graph() -> StateGraph:
     # Nodes
     builder.add_node("guardrail", guardrail)
     builder.add_node("query_reformulator", query_reformulator)
+    builder.add_node("adaptive_router", adaptive_router)
     builder.add_node("retriever", retriever)
     builder.add_node("web_search", web_search)
     builder.add_node("answer_generator", answer_generator)
@@ -216,9 +231,18 @@ def _build_graph() -> StateGraph:
         },
     )
 
-    builder.add_edge("query_reformulator", "retriever")
-    builder.add_edge("retriever", "grade_documents")
-
+    builder.add_edge("query_reformulator", "adaptive_router")
+    builder.add_edge("adaptive_router", "retriever")
+    
+    builder.add_conditional_edges(
+    "retriever",
+    route_after_retrieval,
+    {
+        "answer_generator": "answer_generator",
+        "grade_documents": "grade_documents",
+    },
+)
+    
     builder.add_conditional_edges(
         "grade_documents",
         route_after_grading,

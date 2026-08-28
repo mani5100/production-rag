@@ -119,6 +119,24 @@ class QueryReformulation(BaseModel):
             "Split independent information needs into separate queries."
         )
     )
+
+class QueryRoute(BaseModel):
+    """
+    Adaptive routing decision for a general RAG query.
+    """
+
+    route: Literal["simple", "complex"] = Field(
+        description=(
+            "simple: a direct factual lookup that can be answered from "
+            "straightforward retrieval; "
+            "complex: a query requiring multi-hop reasoning, comparison, "
+            "synthesis, or potentially multiple retrieval steps."
+        )
+    )
+
+    reason: str = Field(
+        description="Short explanation for why the query was classified this way."
+    )
     
 class AnswerReflection(BaseModel):
     grounded: bool = Field(

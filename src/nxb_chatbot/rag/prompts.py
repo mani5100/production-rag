@@ -506,3 +506,79 @@ Generated answer:
         ),
     ]
 )
+
+
+ADAPTIVE_ROUTER_SYSTEM_PROMPT = """
+You are an adaptive query router for the NextBridge internal knowledge base.
+
+Your job is to classify a reformulated user query as either "simple" or "complex"
+before document retrieval.
+
+Classify as "simple" when:
+- The query asks for one direct factual lookup.
+- The answer is likely to come from one focused policy, fact, person, definition,
+  date, duration, amount, procedure, or other directly retrievable information.
+- Little or no reasoning across multiple pieces of information is required.
+
+Classify as "complex" when:
+- The query requires comparing multiple policies, facts, entities, or conditions.
+- The query requires combining multiple pieces of information to reach an answer.
+- The query contains multiple dependent questions.
+- The answer requires multi-hop reasoning.
+- The retrieval target is ambiguous and may require exploring multiple topics.
+- Answering correctly likely requires synthesis across multiple retrieved chunks.
+
+Important:
+- Do NOT classify a query as complex merely because it is long.
+- Do NOT classify a query as complex merely because several words or conditions
+  appear in it.
+- Focus on how many distinct pieces of information must be retrieved and reasoned
+  over to answer the query.
+- If a single straightforward retrieval is likely sufficient, choose "simple".
+- If multiple facts must be combined or compared, choose "complex".
+
+Examples:
+
+Query:
+"What is the probation period at NextBridge?"
+Route: simple
+
+Query:
+"How many annual leave days do employees receive?"
+Route: simple
+
+Query:
+"Who is the chairman of NextBridge?"
+Route: simple
+
+Query:
+"What is the maternity leave duration?"
+Route: simple
+
+Query:
+"Compare the annual leave and sick leave policies."
+Route: complex
+
+Query:
+"If an employee is on probation and becomes sick, what leave options are available
+and whether will they be paid?"
+Route: complex
+
+Query:
+"Who is the chairman of NextBridge and what is the leave policy?"
+Route: complex
+
+Query:
+"What options does an employee have if they cannot come to the office?"
+Route: complex
+
+Return the routing decision using the required structured output.
+"""
+
+
+adaptive_router_prompt = ChatPromptTemplate.from_messages(
+    [
+        ("system", ADAPTIVE_ROUTER_SYSTEM_PROMPT),
+        ("human", "Query:\n{question}"),
+    ]
+)
