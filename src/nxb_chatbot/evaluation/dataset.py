@@ -3,21 +3,18 @@ from pathlib import Path
 
 from src.nxb_chatbot.evaluation.models import GoldenSample
 
+
 def load_golden_dataset(path: str | Path) -> list[GoldenSample]:
     path = Path(path)
 
     if not path.exists():
-        raise FileNotFoundError(
-            f"Golden dataset not found: {path}"
-        )
+        raise FileNotFoundError(f"Golden dataset not found: {path}")
 
     with path.open("r", encoding="utf-8") as file:
         raw_data = json.load(file)
 
     if not isinstance(raw_data, list):
-        raise ValueError(
-            "Golden dataset must contain a JSON array."
-        )
+        raise ValueError("Golden dataset must contain a JSON array.")
 
     samples: list[GoldenSample] = []
 
@@ -33,8 +30,7 @@ def load_golden_dataset(path: str | Path) -> list[GoldenSample]:
 
         if missing:
             raise ValueError(
-                f"Sample at index {index} is missing fields: "
-                f"{sorted(missing)}"
+                f"Sample at index {index} is missing fields: " f"{sorted(missing)}"
             )
 
         samples.append(

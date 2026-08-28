@@ -49,9 +49,7 @@ def init_collection() -> None:
             )
         },
         sparse_vectors_config={
-            "sparse": SparseVectorParams(
-                index=SparseIndexParams(on_disk=False)
-            )
+            "sparse": SparseVectorParams(index=SparseIndexParams(on_disk=False))
         },
     )
 

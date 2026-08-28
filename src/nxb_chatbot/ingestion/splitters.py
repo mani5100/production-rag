@@ -46,10 +46,12 @@ def _extract_segments(text: str) -> list[dict]:
             # Flush accumulated table block
             content = "\n".join(current_lines).strip()
             if content:
-                segments.append({
-                    "content": content,
-                    "is_table": _is_table_block(content),
-                })
+                segments.append(
+                    {
+                        "content": content,
+                        "is_table": _is_table_block(content),
+                    }
+                )
             current_lines = []
             in_table = False
             current_lines.append(line)
@@ -61,10 +63,12 @@ def _extract_segments(text: str) -> list[dict]:
     if current_lines:
         content = "\n".join(current_lines).strip()
         if content:
-            segments.append({
-                "content": content,
-                "is_table": in_table and _is_table_block(content),
-            })
+            segments.append(
+                {
+                    "content": content,
+                    "is_table": in_table and _is_table_block(content),
+                }
+            )
 
     return segments
 

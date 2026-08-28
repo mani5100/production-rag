@@ -30,6 +30,6 @@ class ChatState(TypedDict):
 
     generation_attempts: int
     reflection_attempts: int
-    
+
     query_route: str | None
     routing_reason: str | None

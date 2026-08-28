@@ -3,7 +3,10 @@ from langchain_community.document_compressors import FlashrankRerank
 FlashrankRerank.model_rebuild()
 
 from langchain_core.vectorstores import VectorStoreRetriever
-from langchain_classic.retrievers import ContextualCompressionRetriever, MultiQueryRetriever
+from langchain_classic.retrievers import (
+    ContextualCompressionRetriever,
+    MultiQueryRetriever,
+)
 
 from nxb_chatbot.core.config import settings
 
@@ -30,7 +33,8 @@ def get_reranking_retriever(
         base_compressor=compressor,
         base_retriever=base_retriever,
     )
-    
+
+
 def get_multi_query_retriever(
     base_retriever: VectorStoreRetriever,
 ) -> MultiQueryRetriever:

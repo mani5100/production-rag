@@ -8,7 +8,7 @@ from langchain_ollama import ChatOllama
 from langchain_community.tools.tavily_search import TavilySearchResults
 from nxb_chatbot.rag.prompts import guardrail_prompt, grade_prompt
 from nxb_chatbot.core.config import settings
-from nxb_chatbot.rag.schema import GuardrailResult,  GradeDocuments
+from nxb_chatbot.rag.schema import GuardrailResult, GradeDocuments
 from nxb_chatbot.rag.state import ChatState
 
 logger = logging.getLogger(__name__)
@@ -31,6 +31,7 @@ llm = ChatOllama(
 )
 # Context Formatter
 
+
 def format_context(state: ChatState) -> str:
     if not state["retrieved_docs"]:
         return "No relevant documents found."
@@ -48,7 +49,6 @@ def format_context(state: ChatState) -> str:
     return "\n\n---\n\n".join(formatted)
 
 
-
 def trim_conversation(state: ChatState) -> list:
     """
     Trim conversation history without depending on provider-specific
@@ -64,7 +64,6 @@ def trim_conversation(state: ChatState) -> list:
     )
 
 
-
 def get_tavily_search() -> TavilySearchResults:
     """
     Returns a Tavily search tool scoped to NextBridge related queries.
@@ -75,13 +74,15 @@ def get_tavily_search() -> TavilySearchResults:
         max_results=settings.TAVILY_MAX_RESULTS,
         api_key=settings.TAVILY_API_KEY,
     )
-    
+
+
 def get_guardrail_chain():
     """
     Returns a structured output chain for topic classification.
     Returns GuardrailResult with passed: bool and reason: str.
     """
     return guardrail_prompt | llm.with_structured_output(GuardrailResult)
+
 
 def get_grading_chain():
     """
@@ -126,22 +127,14 @@ def _extract_tracking_data(result: str) -> tuple[str | None, str | None]:
     request_reference: str | None = None
 
     if "thread_id=" in result:
-        thread_id = (
-            result.split("thread_id=", 1)[1]
-            .split(";", 1)[0]
-            .strip()
-            or None
-        )
+        thread_id = result.split("thread_id=", 1)[1].split(";", 1)[0].strip() or None
 
         if thread_id and thread_id.lower() == "none":
             thread_id = None
 
     if "request_reference=" in result:
         request_reference = (
-            result.split("request_reference=", 1)[1]
-            .split(";", 1)[0]
-            .strip()
-            or None
+            result.split("request_reference=", 1)[1].split(";", 1)[0].strip() or None
         )
 
     return thread_id, request_reference
@@ -164,7 +157,5 @@ def _employee_request_view(request_data: dict) -> dict:
     }
 
     return {
-        key: request_data.get(key)
-        for key in keys
-        if request_data.get(key) is not None
+        key: request_data.get(key) for key in keys if request_data.get(key) is not None
     }

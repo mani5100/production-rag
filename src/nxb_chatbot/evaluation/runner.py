@@ -37,9 +37,7 @@ def extract_contexts(
                 contexts.append(str(content))
 
         elif hasattr(doc, "page_content"):
-            contexts.append(
-                str(doc.page_content)
-            )
+            contexts.append(str(doc.page_content))
 
     return contexts
 
@@ -70,9 +68,7 @@ def normalize_documents(
         elif hasattr(doc, "page_content"):
             normalized.append(
                 {
-                    "page_content": (
-                        doc.page_content
-                    ),
+                    "page_content": (doc.page_content),
                     "metadata": getattr(
                         doc,
                         "metadata",
@@ -96,9 +92,7 @@ def extract_generated_answer(
     state: dict[str, Any],
 ) -> str:
 
-    answer = state.get(
-        "generated_answer"
-    )
+    answer = state.get("generated_answer")
 
     if answer:
         return str(answer)
@@ -128,28 +122,17 @@ def build_initial_state(
 ) -> dict[str, Any]:
 
     return {
-        "messages": [
-            HumanMessage(
-                content=sample.question
-            )
-        ],
-
+        "messages": [HumanMessage(content=sample.question)],
         "retrieved_docs": [],
-
         "standalone_query": "",
         "retrieval_queries": [],
-
         "generated_answer": "",
-
         "web_search_used": False,
-
         "retrieval_attempts": 0,
         "generation_attempts": 0,
         "reflection_attempts": 0,
-
         "grade_verdict": None,
         "grade_reason": None,
-
         "reflection_action": None,
         "reflection_reason": None,
         "reflection_feedback": None,
@@ -169,50 +152,25 @@ def state_to_evaluation_run(
     return EvaluationRun(
         id=sample.id,
         question=sample.question,
-        expected_answer=(
-            sample.expected_answer
-        ),
+        expected_answer=(sample.expected_answer),
         category=sample.category,
-
-        generated_answer=(
-            extract_generated_answer(state)
-        ),
-
-        retrieved_contexts=(
-            extract_contexts(
-                retrieved_docs
-            )
-        ),
-
-        retrieved_documents=(
-            normalize_documents(
-                retrieved_docs
-            )
-        ),
-
-        expected_source_doc=(
-            sample.source_doc
-        ),
-        expected_source_page=(
-            sample.source_page
-        ),
-
-        standalone_query=state.get(
-            "standalone_query"
-        ),
-
+        generated_answer=(extract_generated_answer(state)),
+        retrieved_contexts=(extract_contexts(retrieved_docs)),
+        retrieved_documents=(normalize_documents(retrieved_docs)),
+        expected_source_doc=(sample.source_doc),
+        expected_source_page=(sample.source_page),
+        standalone_query=state.get("standalone_query"),
         retrieval_queries=state.get(
             "retrieval_queries",
             [],
-        ) or [],
-
+        )
+        or [],
         web_search_used=bool(
             state.get(
                 "web_search_used",
                 False,
             )
         ),
-
         retrieval_attempts=int(
             state.get(
                 "retrieval_attempts",
@@ -220,7 +178,6 @@ def state_to_evaluation_run(
             )
             or 0
         ),
-
         generation_attempts=int(
             state.get(
                 "generation_attempts",
@@ -228,7 +185,6 @@ def state_to_evaluation_run(
             )
             or 0
         ),
-
         reflection_attempts=int(
             state.get(
                 "reflection_attempts",
@@ -236,22 +192,10 @@ def state_to_evaluation_run(
             )
             or 0
         ),
-
-        grade_verdict=state.get(
-            "grade_verdict"
-        ),
-
-        grade_reason=state.get(
-            "grade_reason"
-        ),
-
-        reflection_action=state.get(
-            "reflection_action"
-        ),
-
-        reflection_reason=state.get(
-            "reflection_reason"
-        ),
+        grade_verdict=state.get("grade_verdict"),
+        grade_reason=state.get("grade_reason"),
+        reflection_action=state.get("reflection_action"),
+        reflection_reason=state.get("reflection_reason"),
     )
 
 
@@ -262,42 +206,27 @@ async def run_sample(
 
     print()
     print("=" * 70)
-    print(
-        f"Running {sample.id}: "
-        f"{sample.question}"
-    )
+    print(f"Running {sample.id}: " f"{sample.question}")
     print("=" * 70)
 
     try:
-        initial_state = (
-            build_initial_state(sample)
-        )
+        initial_state = build_initial_state(sample)
 
         final_state = await graph.ainvoke(
             initial_state,
-            config={
-                "configurable": {
-                    "thread_id": f"eval-{sample.id}"
-                }
-            },
+            config={"configurable": {"thread_id": f"eval-{sample.id}"}},
         )
 
-        result = (
-            state_to_evaluation_run(
-                sample=sample,
-                state=final_state,
-            )
+        result = state_to_evaluation_run(
+            sample=sample,
+            state=final_state,
         )
 
-        print(
-            f"[SUCCESS] {sample.id}"
-        )
+        print(f"[SUCCESS] {sample.id}")
 
         print(
             "  Retrieved contexts:",
-            len(
-                result.retrieved_contexts
-            ),
+            len(result.retrieved_contexts),
         )
 
         print(
@@ -323,28 +252,17 @@ async def run_sample(
         return result
 
     except Exception as exc:
-        print(
-            f"[ERROR] {sample.id}: "
-            f"{exc}"
-        )
+        print(f"[ERROR] {sample.id}: " f"{exc}")
 
         traceback.print_exc()
 
         return EvaluationRun(
             id=sample.id,
             question=sample.question,
-            expected_answer=(
-                sample.expected_answer
-            ),
+            expected_answer=(sample.expected_answer),
             category=sample.category,
-
-            expected_source_doc=(
-                sample.source_doc
-            ),
-            expected_source_page=(
-                sample.source_page
-            ),
-
+            expected_source_doc=(sample.source_doc),
+            expected_source_page=(sample.source_page),
             status="error",
             error=str(exc),
         )
@@ -355,19 +273,14 @@ def save_results(
     output_path: str | Path,
 ) -> None:
 
-    output_path = Path(
-        output_path
-    )
+    output_path = Path(output_path)
 
     output_path.parent.mkdir(
         parents=True,
         exist_ok=True,
     )
 
-    payload = [
-        result.to_dict()
-        for result in results
-    ]
+    payload = [result.to_dict() for result in results]
 
     with output_path.open(
         "w",
@@ -382,10 +295,7 @@ def save_results(
             default=str,
         )
 
-    print(
-        f"Saved {len(results)} runs "
-        f"to {output_path}"
-    )
+    print(f"Saved {len(results)} runs " f"to {output_path}")
 
 
 def select_samples(
@@ -398,28 +308,14 @@ def select_samples(
 
     requested_ids = set(ids)
 
-    selected = [
-        sample
-        for sample in samples
-        if sample.id in requested_ids
-    ]
+    selected = [sample for sample in samples if sample.id in requested_ids]
 
-    found_ids = {
-        sample.id
-        for sample in selected
-    }
+    found_ids = {sample.id for sample in selected}
 
-    missing_ids = (
-        requested_ids - found_ids
-    )
+    missing_ids = requested_ids - found_ids
 
     if missing_ids:
-        raise ValueError(
-            "Unknown sample IDs: "
-            + ", ".join(
-                sorted(missing_ids)
-            )
-        )
+        raise ValueError("Unknown sample IDs: " + ", ".join(sorted(missing_ids)))
 
     return selected
 
@@ -430,27 +326,18 @@ async def run_evaluation(
     ids: list[str] | None = None,
 ) -> None:
 
-    samples = load_golden_dataset(
-        dataset_path
-    )
+    samples = load_golden_dataset(dataset_path)
 
     samples = select_samples(
         samples,
         ids,
     )
 
-    print(
-        f"Loaded {len(samples)} "
-        "evaluation samples."
-    )
+    print(f"Loaded {len(samples)} " "evaluation samples.")
 
-    graph, connection_pool = (
-        await get_compiled_graph()
-    )
+    graph, connection_pool = await get_compiled_graph()
 
-    results: list[
-        EvaluationRun
-    ] = []
+    results: list[EvaluationRun] = []
 
     try:
         for sample in samples:
@@ -459,9 +346,7 @@ async def run_evaluation(
                 graph,
             )
 
-            results.append(
-                result
-            )
+            results.append(result)
 
             save_results(
                 results,
@@ -470,36 +355,24 @@ async def run_evaluation(
     finally:
         await connection_pool.close()
 
-    successful = sum(
-        result.status == "success"
-        for result in results
-    )
+    successful = sum(result.status == "success" for result in results)
 
-    failed = (
-        len(results) - successful
-    )
+    failed = len(results) - successful
 
     print()
     print("=" * 70)
     print("Evaluation run complete")
     print("=" * 70)
 
-    print(
-        f"Successful: {successful}"
-    )
+    print(f"Successful: {successful}")
 
-    print(
-        f"Failed:     {failed}"
-    )
+    print(f"Failed:     {failed}")
 
 
 def parse_args() -> argparse.Namespace:
 
     parser = argparse.ArgumentParser(
-        description=(
-            "Run golden dataset "
-            "questions through CRAG."
-        )
+        description=("Run golden dataset " "questions through CRAG.")
     )
 
     parser.add_argument(
@@ -527,12 +400,8 @@ def main() -> None:
 
     asyncio.run(
         run_evaluation(
-            dataset_path=(
-                args.dataset
-            ),
-            output_path=(
-                args.output
-            ),
+            dataset_path=(args.dataset),
+            output_path=(args.output),
             ids=args.ids,
         )
     )

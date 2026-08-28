@@ -19,7 +19,7 @@ from nxb_chatbot.rag.prompts import (
     reformulation_prompt,
     rewrite_prompt,
     reflection_prompt,
-    adaptive_router_prompt
+    adaptive_router_prompt,
 )
 from nxb_chatbot.rag.reranker import get_multi_query_retriever, get_reranking_retriever
 from nxb_chatbot.rag.schema import (
@@ -30,7 +30,7 @@ from nxb_chatbot.rag.schema import (
     GMAcknowledgementResult,
     GuardrailResult,
     QueryReformulation,
-    QueryRoute
+    QueryRoute,
 )
 from nxb_chatbot.rag.services import (
     _employee_request_view,
@@ -67,8 +67,8 @@ OFF_TOPIC_RESPONSE = (
 )
 
 
-
 # Node 1 — Guardrail
+
 
 def guardrail(state: ChatState, config: RunnableConfig) -> dict:
     messages = state["messages"]
@@ -91,9 +91,10 @@ def guardrail(state: ChatState, config: RunnableConfig) -> dict:
         }
 
     return {
-    "guardrail_passed": True,
-    "route_intent": result.intent,
-}
+        "guardrail_passed": True,
+        "route_intent": result.intent,
+    }
+
 
 def conversational_response(state: ChatState, config: RunnableConfig) -> dict:
     messages = trim_conversation(state)
@@ -120,7 +121,7 @@ def _parse_meal_preference(
     prompt = (
         f"The user was asked to choose a meal subscription type from these options:\n"
         f"1. Lunch\n2. Dinner\n3. Both (Lunch + Dinner)\n4. Roti Only\n\n"
-        f"The user replied: \"{user_input}\"\n\n"
+        f'The user replied: "{user_input}"\n\n'
         f"Return ONLY one of these exact strings with no extra words:\n"
         f"Lunch\nDinner\nBoth\nRoti Only\n\n"
         f"If you cannot determine their choice, return ONLY: UNCLEAR"
@@ -146,6 +147,7 @@ def _parse_meal_preference(
 
     return None
 
+
 def _parse_mis_issue_type(user_input: str) -> str | None:
     value = user_input.strip().lower()
 
@@ -163,7 +165,9 @@ def _parse_mis_issue_type(user_input: str) -> str | None:
 
     return None
 
+
 # Node 2 — Query Reformulator
+
 
 def query_reformulator(state: ChatState, config: RunnableConfig) -> dict:
     """
@@ -191,9 +195,7 @@ def query_reformulator(state: ChatState, config: RunnableConfig) -> dict:
     standalone_query = response.standalone_query.strip()
 
     retrieval_queries = [
-        query.strip()
-        for query in response.retrieval_queries
-        if query.strip()
+        query.strip() for query in response.retrieval_queries if query.strip()
     ]
 
     if not retrieval_queries:
@@ -210,6 +212,7 @@ def query_reformulator(state: ChatState, config: RunnableConfig) -> dict:
         "grade_verdict": None,
         "grade_reason": None,
     }
+
 
 # Node — Adaptive Router
 def adaptive_router(state: ChatState, config: RunnableConfig) -> dict:
@@ -236,17 +239,16 @@ def adaptive_router(state: ChatState, config: RunnableConfig) -> dict:
         config=config,
     )
 
-    logger.info(
-        f"Adaptive route: {result.route} | reason={result.reason}"
-    )
+    logger.info(f"Adaptive route: {result.route} | reason={result.reason}")
 
     return {
         "query_route": result.route,
         "routing_reason": result.reason,
     }
-    
+
 
 # Node 3 — Retriever
+
 
 def retriever(state: ChatState, config: RunnableConfig) -> dict:
     """
@@ -259,21 +261,15 @@ def retriever(state: ChatState, config: RunnableConfig) -> dict:
     Relevance grading happens in grade_documents.
     """
 
-    queries = state.get("retrieval_queries") or [
-        state["standalone_query"]
-    ]
+    queries = state.get("retrieval_queries") or [state["standalone_query"]]
 
     filters = state.get("retrieval_filters")
 
-    logger.info(
-        f"Retrieving docs for {len(queries)} retrieval queries: {queries}"
-    )
+    logger.info(f"Retrieving docs for {len(queries)} retrieval queries: {queries}")
 
     vector_store = get_vector_store()
 
-    search_kwargs = {
-        "k": settings.RETRIEVER_TOP_K
-    }
+    search_kwargs = {"k": settings.RETRIEVER_TOP_K}
 
     if filters:
         search_kwargs["filter"] = filters
@@ -283,13 +279,9 @@ def retriever(state: ChatState, config: RunnableConfig) -> dict:
         search_kwargs=search_kwargs,
     )
 
-    expanded_retriever = get_multi_query_retriever(
-        base_retriever
-    )
+    expanded_retriever = get_multi_query_retriever(base_retriever)
 
-    reranking_retriever = get_reranking_retriever(
-        expanded_retriever
-    )
+    reranking_retriever = get_reranking_retriever(expanded_retriever)
 
     all_docs = []
 
@@ -299,9 +291,7 @@ def retriever(state: ChatState, config: RunnableConfig) -> dict:
 
         docs = reranking_retriever.invoke(query, config=config)
 
-        logger.info(
-            f"Query returned {len(docs)} reranked chunks."
-        )
+        logger.info(f"Query returned {len(docs)} reranked chunks.")
 
         all_docs.extend(docs)
 
@@ -309,13 +299,10 @@ def retriever(state: ChatState, config: RunnableConfig) -> dict:
     unique_docs = {}
 
     for doc in all_docs:
-        doc_id = (
-            doc.metadata.get("_id")
-            or (
-                doc.metadata.get("file_name"),
-                doc.metadata.get("page"),
-                doc.page_content[:100],
-            )
+        doc_id = doc.metadata.get("_id") or (
+            doc.metadata.get("file_name"),
+            doc.metadata.get("page"),
+            doc.page_content[:100],
         )
 
         # Keep the first occurrence.
@@ -342,9 +329,8 @@ def retriever(state: ChatState, config: RunnableConfig) -> dict:
         f"from {len(queries)} retrieval queries."
     )
 
-    return {
-        "retrieved_docs": serializable_docs
-    }
+    return {"retrieved_docs": serializable_docs}
+
 
 # Node — Grade Documents (CRAG)
 def grade_documents(state: ChatState, config: RunnableConfig) -> dict:
@@ -386,7 +372,11 @@ def rewrite_query(state: ChatState, config: RunnableConfig) -> dict:
     original_question = state["messages"][-1].content
     previous_query = state["standalone_query"]
 
-    grade_reason = (state.get("reflection_feedback") or state.get("grade_reason") or "No relevant information found.")
+    grade_reason = (
+        state.get("reflection_feedback")
+        or state.get("grade_reason")
+        or "No relevant information found."
+    )
 
     chain = rewrite_prompt | llm
 
@@ -410,9 +400,7 @@ def rewrite_query(state: ChatState, config: RunnableConfig) -> dict:
         "standalone_query": new_query,
         "retrieval_queries": [new_query],
         "query_route": (
-            "complex"
-            if state.get("reflection_feedback")
-            else state.get("query_route")
+            "complex" if state.get("reflection_feedback") else state.get("query_route")
         ),
         "reflection_action": None,
         "reflection_reason": None,
@@ -454,6 +442,7 @@ def web_search(state: ChatState, config: RunnableConfig) -> dict:
 
     return {"retrieved_docs": web_docs, "web_search_used": True}
 
+
 # Node 5 — Answer Generator
 def answer_generator(state: ChatState, config: RunnableConfig) -> dict:
     """
@@ -469,9 +458,7 @@ def answer_generator(state: ChatState, config: RunnableConfig) -> dict:
     reflection_feedback = state.get("reflection_feedback")
     generation_attempts = state.get("generation_attempts", 0) + 1
 
-    logger.info(
-        f"Generating answer. Attempt #{generation_attempts}"
-    )
+    logger.info(f"Generating answer. Attempt #{generation_attempts}")
 
     chain = rag_prompt | llm
 
@@ -492,6 +479,8 @@ def answer_generator(state: ChatState, config: RunnableConfig) -> dict:
         "generated_answer": answer_text,
         "generation_attempts": generation_attempts,
     }
+
+
 def _get_latest_human_message(messages: list) -> str:
     """Returns the content of the most recent human message."""
     for msg in reversed(messages):
@@ -499,9 +488,11 @@ def _get_latest_human_message(messages: list) -> str:
             return msg.content
     return ""
 
+
 # ---------------------------------------------------------------------------
 # Node 6 — Meal subscription
 # ---------------------------------------------------------------------------
+
 
 def meal_subscription_node(state: ChatState, config: RunnableConfig) -> dict:
     """
@@ -513,12 +504,14 @@ def meal_subscription_node(state: ChatState, config: RunnableConfig) -> dict:
 
     if meal.get("email_sent"):
         return {
-            "messages": [AIMessage(
-                content=(
-                    f"Your **{meal.get('preference', 'meal')}** subscription is already submitted. "
-                    f"Ask *'What is the status of my meal subscription?'* to check for updates."
+            "messages": [
+                AIMessage(
+                    content=(
+                        f"Your **{meal.get('preference', 'meal')}** subscription is already submitted. "
+                        f"Ask *'What is the status of my meal subscription?'* to check for updates."
+                    )
                 )
-            )]
+            ]
         }
 
     step = meal.get("step", "start")
@@ -539,18 +532,20 @@ def meal_subscription_node(state: ChatState, config: RunnableConfig) -> dict:
             }
         return {
             "meal_data": {**meal, "step": "waiting_name", "preference": preference},
-            "messages": [AIMessage(
-                content="Please enter your **full name** as it appears in HR records:"
-            )],
+            "messages": [
+                AIMessage(
+                    content="Please enter your **full name** as it appears in HR records:"
+                )
+            ],
         }
 
     # ── Step 3: Save name — ask for employee ID ─────────────────────────────
     if step == "waiting_name":
         return {
             "meal_data": {**meal, "step": "waiting_emp_id", "name": latest.strip()},
-            "messages": [AIMessage(
-                content="Please enter your **Employee ID** (e.g. NXB-0042):"
-            )],
+            "messages": [
+                AIMessage(content="Please enter your **Employee ID** (e.g. NXB-0042):")
+            ],
         }
 
     # ── Step 4: Save emp ID — send email ────────────────────────────────────
@@ -581,9 +576,7 @@ def meal_subscription_node(state: ChatState, config: RunnableConfig) -> dict:
                 thread_id = None
 
         if "request_reference=" in result:
-            request_reference = (
-                result.split("request_reference=", 1)[1].strip() or None
-            )
+            request_reference = result.split("request_reference=", 1)[1].strip() or None
 
         return {
             "meal_data": {
@@ -595,20 +588,28 @@ def meal_subscription_node(state: ChatState, config: RunnableConfig) -> dict:
                 "request_reference": request_reference,
                 "in_progress": False,
             },
-            "messages": [AIMessage(
-                content=(
-                    f"Done, **{name}**! Your **{preference}** subscription request "
-                    f"(ID: {emp_id}) has been sent to the meals department.\n\n"
-                    f"Ask *'What is the status of my meal subscription?'* anytime to check for a reply."
+            "messages": [
+                AIMessage(
+                    content=(
+                        f"Done, **{name}**! Your **{preference}** subscription request "
+                        f"(ID: {emp_id}) has been sent to the meals department.\n\n"
+                        f"Ask *'What is the status of my meal subscription?'* anytime to check for a reply."
+                    )
                 )
-            )],
+            ],
         }
 
     return {
-        "messages": [AIMessage(content="Something went wrong. Please say 'I want to subscribe to meals' to start again.")]
+        "messages": [
+            AIMessage(
+                content="Something went wrong. Please say 'I want to subscribe to meals' to start again."
+            )
+        ]
     }
 
+
 # Node 7 — Check meal subscription status
+
 
 def check_meal_status_node(state: ChatState, config: RunnableConfig) -> dict:
     """
@@ -620,23 +621,23 @@ def check_meal_status_node(state: ChatState, config: RunnableConfig) -> dict:
     latest = _get_latest_human_message(state["messages"])
 
     preference = meal.get("preference")
-    name       = meal.get("name", "the employee")
-    emp_id     = meal.get("employee_id", "N/A")
-    thread_id  = meal.get("thread_id")
+    name = meal.get("name", "the employee")
+    emp_id = meal.get("employee_id", "N/A")
+    thread_id = meal.get("thread_id")
 
     if not meal.get("email_sent") or not preference:
         return {
-            "messages": [AIMessage(
-                content=(
-                    "I don't have a submitted subscription for this session. "
-                    "Say *'I want to subscribe to meals'* to start one."
+            "messages": [
+                AIMessage(
+                    content=(
+                        "I don't have a submitted subscription for this session. "
+                        "Say *'I want to subscribe to meals'* to start one."
+                    )
                 )
-            )]
+            ]
         }
     if not thread_id:
-        logger.warning(
-            "Meal status cannot be checked because no thread_id is stored."
-        )
+        logger.warning("Meal status cannot be checked because no thread_id is stored.")
         return {
             "messages": [
                 AIMessage(
@@ -651,9 +652,11 @@ def check_meal_status_node(state: ChatState, config: RunnableConfig) -> dict:
 
     if meal.get("acknowledged"):
         return {
-            "messages": [AIMessage(
-                content=f"Your **{preference}** subscription was already acknowledged. You're all set!"
-            )]
+            "messages": [
+                AIMessage(
+                    content=f"Your **{preference}** subscription was already acknowledged. You're all set!"
+                )
+            ]
         }
 
     # ── Waiting for yes/no on acknowledgment ────────────────────────────────
@@ -668,15 +671,19 @@ def check_meal_status_node(state: ChatState, config: RunnableConfig) -> dict:
             )
             return {
                 "meal_data": {**meal, "acknowledged": True, "waiting_for_ack": False},
-                "messages": [AIMessage(
-                    content="✅ Acknowledgment sent to the meals department. You're all set!"
-                )],
+                "messages": [
+                    AIMessage(
+                        content="✅ Acknowledgment sent to the meals department. You're all set!"
+                    )
+                ],
             }
         return {
             "meal_data": {**meal, "waiting_for_ack": False},
-            "messages": [AIMessage(
-                content="Okay, acknowledgment skipped. Ask for the status again anytime to send it."
-            )],
+            "messages": [
+                AIMessage(
+                    content="Okay, acknowledgment skipped. Ask for the status again anytime to send it."
+                )
+            ],
         }
 
     # ── Check for reply via @tool ────────────────────────────────────────────
@@ -719,17 +726,19 @@ def check_meal_status_node(state: ChatState, config: RunnableConfig) -> dict:
 
     return {
         "meal_data": {**meal, "waiting_for_ack": True},
-        "messages": [AIMessage(
-            content=(
-                f"📬 The meals department has replied!\n\n"
-                f"**Their reply:** _{reply_body[:500]}_\n\n"
-                f"---\n"
-                f"**Draft acknowledgment:**\n```\n{ack_draft}\n```\n\n"
-                f"Should I send this? Reply **yes** to send or **no** to skip."
+        "messages": [
+            AIMessage(
+                content=(
+                    f"📬 The meals department has replied!\n\n"
+                    f"**Their reply:** _{reply_body[:500]}_\n\n"
+                    f"---\n"
+                    f"**Draft acknowledgment:**\n```\n{ack_draft}\n```\n\n"
+                    f"Should I send this? Reply **yes** to send or **no** to skip."
+                )
             )
-        )],
+        ],
     }
-    
+
 
 def mis_request_node(state: ChatState, config: RunnableConfig) -> dict:
     mis = state.get("mis_data") or {}
@@ -809,9 +818,7 @@ def mis_request_node(state: ChatState, config: RunnableConfig) -> dict:
                 "name": latest.strip(),
             },
             "messages": [
-                AIMessage(
-                    content="Please enter your **Employee ID** (e.g. NXB-0042):"
-                )
+                AIMessage(content="Please enter your **Employee ID** (e.g. NXB-0042):")
             ],
         }
 
@@ -834,19 +841,14 @@ def mis_request_node(state: ChatState, config: RunnableConfig) -> dict:
 
         if "thread_id=" in result:
             thread_id = (
-                result.split("thread_id=", 1)[1]
-                .split(";", 1)[0]
-                .strip()
-                or None
+                result.split("thread_id=", 1)[1].split(";", 1)[0].strip() or None
             )
 
             if thread_id and thread_id.lower() == "none":
                 thread_id = None
 
         if "request_reference=" in result:
-            request_reference = (
-                result.split("request_reference=", 1)[1].strip() or None
-            )
+            request_reference = result.split("request_reference=", 1)[1].strip() or None
 
         return {
             "mis_data": {
@@ -880,8 +882,8 @@ def mis_request_node(state: ChatState, config: RunnableConfig) -> dict:
             )
         ]
     }
-    
-    
+
+
 def check_mis_status_node(state: ChatState, config: RunnableConfig) -> dict:
     mis = state.get("mis_data") or {}
     latest = _get_latest_human_message(state["messages"])
@@ -919,9 +921,7 @@ def check_mis_status_node(state: ChatState, config: RunnableConfig) -> dict:
     if mis.get("acknowledged"):
         return {
             "messages": [
-                AIMessage(
-                    content="Your MIS response has already been acknowledged."
-                )
+                AIMessage(content="Your MIS response has already been acknowledged.")
             ]
         }
 
@@ -941,11 +941,7 @@ def check_mis_status_node(state: ChatState, config: RunnableConfig) -> dict:
                     "acknowledged": True,
                     "waiting_for_ack": False,
                 },
-                "messages": [
-                    AIMessage(
-                        content="Acknowledgment sent to the MIS team."
-                    )
-                ],
+                "messages": [AIMessage(content="Acknowledgment sent to the MIS team.")],
             }
 
         return {
@@ -1016,13 +1012,12 @@ def check_mis_status_node(state: ChatState, config: RunnableConfig) -> dict:
             )
         ],
     }
-    
-    
 
 
 # ---------------------------------------------------------------------------
 # Leave / Work From Home autonomous request node
 # ---------------------------------------------------------------------------
+
 
 def employee_request_node(state: ChatState, config: RunnableConfig) -> dict:
     """
@@ -1055,11 +1050,8 @@ def employee_request_node(state: ChatState, config: RunnableConfig) -> dict:
 
     # The employee was already shown a complete summary.
     if request_data.get("confirmation_requested"):
-        confirmation_chain = (
-            employee_confirmation_prompt
-            | llm.with_structured_output(
-                EmployeeConfirmationDecision
-            )
+        confirmation_chain = employee_confirmation_prompt | llm.with_structured_output(
+            EmployeeConfirmationDecision
         )
 
         confirmation = confirmation_chain.invoke(
@@ -1079,9 +1071,7 @@ def employee_request_node(state: ChatState, config: RunnableConfig) -> dict:
             )
 
             missing_fields = [
-                field
-                for field in required_fields
-                if not request_data.get(field)
+                field for field in required_fields if not request_data.get(field)
             ]
 
             if missing_fields:
@@ -1119,9 +1109,7 @@ def employee_request_node(state: ChatState, config: RunnableConfig) -> dict:
                         ],
                     }
 
-                thread_id, request_reference = (
-                    _extract_tracking_data(tool_result)
-                )
+                thread_id, request_reference = _extract_tracking_data(tool_result)
 
                 return {
                     "employee_request_data": {
@@ -1149,9 +1137,7 @@ def employee_request_node(state: ChatState, config: RunnableConfig) -> dict:
         elif confirmation.action == "rejected":
             return {
                 "employee_request_data": {},
-                "messages": [
-                    AIMessage(content=confirmation.response)
-                ],
+                "messages": [AIMessage(content=confirmation.response)],
             }
 
         elif confirmation.action == "correction":
@@ -1164,14 +1150,11 @@ def employee_request_node(state: ChatState, config: RunnableConfig) -> dict:
         else:
             return {
                 "employee_request_data": request_data,
-                "messages": [
-                    AIMessage(content=confirmation.response)
-                ],
+                "messages": [AIMessage(content=confirmation.response)],
             }
 
-    request_chain = (
-        employee_request_prompt
-        | llm.with_structured_output(EmployeeRequestDecision)
+    request_chain = employee_request_prompt | llm.with_structured_output(
+        EmployeeRequestDecision
     )
 
     decision = request_chain.invoke(
@@ -1207,9 +1190,7 @@ def employee_request_node(state: ChatState, config: RunnableConfig) -> dict:
     if decision.action == "cancel_request":
         return {
             "employee_request_data": {},
-            "messages": [
-                AIMessage(content=decision.response)
-            ],
+            "messages": [AIMessage(content=decision.response)],
         }
 
     if decision.action == "request_confirmation":
@@ -1219,9 +1200,7 @@ def employee_request_node(state: ChatState, config: RunnableConfig) -> dict:
                 "in_progress": True,
                 "confirmation_requested": True,
             },
-            "messages": [
-                AIMessage(content=decision.response)
-            ],
+            "messages": [AIMessage(content=decision.response)],
         }
 
     if decision.action == "send_request":
@@ -1249,11 +1228,10 @@ def employee_request_node(state: ChatState, config: RunnableConfig) -> dict:
             **updated_request,
             "in_progress": True,
         },
-        "messages": [
-            AIMessage(content=decision.response)
-        ],
+        "messages": [AIMessage(content=decision.response)],
     }
-    
+
+
 def check_employee_request_status_node(
     state: ChatState, config: RunnableConfig
 ) -> dict:
@@ -1307,9 +1285,7 @@ def check_employee_request_status_node(
     if request_data.get("waiting_for_ack"):
         confirmation_chain = (
             acknowledgement_confirmation_prompt
-            | llm.with_structured_output(
-                AcknowledgementConfirmationDecision
-            )
+            | llm.with_structured_output(AcknowledgementConfirmationDecision)
         )
 
         confirmation = confirmation_chain.invoke(
@@ -1325,14 +1301,12 @@ def check_employee_request_status_node(
                 "",
             )
 
-            result = (
-                send_gm_employee_request_acknowledgement.invoke(
-                    {
-                        "thread_id": thread_id,
-                        "acknowledgement": acknowledgement,
-                    },
-                    config=config,
-                )
+            result = send_gm_employee_request_acknowledgement.invoke(
+                {
+                    "thread_id": thread_id,
+                    "acknowledgement": acknowledgement,
+                },
+                config=config,
             )
 
             if result.startswith("ERROR:"):
@@ -1341,8 +1315,7 @@ def check_employee_request_status_node(
                     "messages": [
                         AIMessage(
                             content=(
-                                "The acknowledgement could not be sent. "
-                                f"{result}"
+                                "The acknowledgement could not be sent. " f"{result}"
                             )
                         )
                     ],
@@ -1354,9 +1327,7 @@ def check_employee_request_status_node(
                     "waiting_for_ack": False,
                     "acknowledged": True,
                 },
-                "messages": [
-                    AIMessage(content=confirmation.response)
-                ],
+                "messages": [AIMessage(content=confirmation.response)],
             }
 
         if confirmation.action == "skip":
@@ -1365,9 +1336,7 @@ def check_employee_request_status_node(
                     **request_data,
                     "waiting_for_ack": False,
                 },
-                "messages": [
-                    AIMessage(content=confirmation.response)
-                ],
+                "messages": [AIMessage(content=confirmation.response)],
             }
 
         if confirmation.action == "regenerate":
@@ -1375,9 +1344,7 @@ def check_employee_request_status_node(
 
             acknowledgement_chain = (
                 gm_acknowledgement_prompt
-                | llm.with_structured_output(
-                    GMAcknowledgementResult
-                )
+                | llm.with_structured_output(GMAcknowledgementResult)
             )
 
             generated = acknowledgement_chain.invoke(
@@ -1402,9 +1369,7 @@ def check_employee_request_status_node(
             return {
                 "employee_request_data": {
                     **request_data,
-                    "acknowledgement_draft": (
-                        generated.acknowledgement
-                    ),
+                    "acknowledgement_draft": (generated.acknowledgement),
                     "waiting_for_ack": True,
                 },
                 "messages": [
@@ -1421,9 +1386,7 @@ def check_employee_request_status_node(
 
         return {
             "employee_request_data": request_data,
-            "messages": [
-                AIMessage(content=confirmation.response)
-            ],
+            "messages": [AIMessage(content=confirmation.response)],
         }
 
     gm_reply = check_gm_employee_request_reply.invoke(
@@ -1458,9 +1421,8 @@ def check_employee_request_status_node(
             ]
         }
 
-    acknowledgement_chain = (
-        gm_acknowledgement_prompt
-        | llm.with_structured_output(GMAcknowledgementResult)
+    acknowledgement_chain = gm_acknowledgement_prompt | llm.with_structured_output(
+        GMAcknowledgementResult
     )
 
     generated = acknowledgement_chain.invoke(
@@ -1503,8 +1465,8 @@ def check_employee_request_status_node(
             )
         ],
     }
-    
-    
+
+
 def reflect_answer(state: ChatState, config: RunnableConfig) -> dict:
     """
     Critique the generated answer against the retrieved context
@@ -1517,9 +1479,7 @@ def reflect_answer(state: ChatState, config: RunnableConfig) -> dict:
     docs = state.get("retrieved_docs", [])
 
     context = "\n\n".join(
-        doc.get("page_content", "")
-        for doc in docs
-        if doc.get("page_content")
+        doc.get("page_content", "") for doc in docs if doc.get("page_content")
     )
 
     logger.info("Reflecting on generated answer.")

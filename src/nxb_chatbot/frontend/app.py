@@ -8,7 +8,6 @@ os.environ.pop("DATABASE_URL", None)
 import chainlit as cl
 import httpx
 
-
 API_BASE_URL = os.getenv(
     "API_BASE_URL",
     "http://localhost:8000/api/v1",
@@ -42,9 +41,7 @@ async def on_chat_start() -> None:
 async def process_user_text(user_text: str) -> None:
     """Send typed or transcribed text to the RAG backend."""
 
-    session_id = cl.user_session.get(
-        "backend_session_id"
-    )
+    session_id = cl.user_session.get("backend_session_id")
 
     payload = {
         "message": user_text,
@@ -82,9 +79,7 @@ async def process_user_text(user_text: str) -> None:
                     event_type = event.get("type")
 
                     if event_type == "session":
-                        backend_session_id = event.get(
-                            "session_id"
-                        )
+                        backend_session_id = event.get("session_id")
 
                         if backend_session_id:
                             cl.user_session.set(
@@ -99,14 +94,10 @@ async def process_user_text(user_text: str) -> None:
                             received_token = True
                             full_answer += content
 
-                            await response_message.stream_token(
-                                content
-                            )
+                            await response_message.stream_token(content)
 
                     elif event_type == "done":
-                        backend_session_id = event.get(
-                            "session_id"
-                        )
+                        backend_session_id = event.get("session_id")
 
                         if backend_session_id:
                             cl.user_session.set(
@@ -121,9 +112,7 @@ async def process_user_text(user_text: str) -> None:
                                 received_token = True
                                 full_answer += fallback_answer
 
-                                await response_message.stream_token(
-                                    fallback_answer
-                                )
+                                await response_message.stream_token(fallback_answer)
 
                         if event.get("web_search_used"):
                             await response_message.stream_token(
@@ -163,15 +152,11 @@ async def process_user_text(user_text: str) -> None:
             ).send()
 
     except httpx.ConnectError:
-        response_message.content = (
-            "I could not connect to the FastAPI backend."
-        )
+        response_message.content = "I could not connect to the FastAPI backend."
         await response_message.update()
 
     except httpx.TimeoutException:
-        response_message.content = (
-            "The FastAPI stream timed out."
-        )
+        response_message.content = "The FastAPI stream timed out."
         await response_message.update()
 
     except httpx.HTTPStatusError as exc:
@@ -183,15 +168,11 @@ async def process_user_text(user_text: str) -> None:
         await response_message.update()
 
     except json.JSONDecodeError:
-        response_message.content = (
-            "FastAPI returned an invalid streaming event."
-        )
+        response_message.content = "FastAPI returned an invalid streaming event."
         await response_message.update()
 
     except Exception as exc:
-        response_message.content = (
-            f"Unexpected streaming error: `{exc}`"
-        )
+        response_message.content = f"Unexpected streaming error: `{exc}`"
         await response_message.update()
 
 
@@ -206,6 +187,7 @@ async def on_message(message: cl.Message) -> None:
 
     await process_user_text(user_text)
 
+
 @cl.on_audio_start
 async def on_audio_start() -> bool:
     """Initialize raw PCM audio collection."""
@@ -216,6 +198,7 @@ async def on_audio_start() -> bool:
     cl.user_session.set("audio_sample_width", 2)
 
     return True
+
 
 @cl.on_audio_chunk
 async def on_audio_chunk(
@@ -257,33 +240,23 @@ async def on_audio_end() -> None:
 
     audio_buffer = cl.user_session.get("audio_buffer")
 
-    sample_rate = cl.user_session.get(
-        "audio_sample_rate"
-    ) or 24000
+    sample_rate = cl.user_session.get("audio_sample_rate") or 24000
 
-    channels = cl.user_session.get(
-        "audio_channels"
-    ) or 1
+    channels = cl.user_session.get("audio_channels") or 1
 
-    sample_width = cl.user_session.get(
-        "audio_sample_width"
-    ) or 2
+    sample_width = cl.user_session.get("audio_sample_width") or 2
 
     cl.user_session.set("audio_buffer", None)
 
     if audio_buffer is None:
-        await cl.Message(
-            content="No microphone audio was captured."
-        ).send()
+        await cl.Message(content="No microphone audio was captured.").send()
         return
 
     pcm_bytes = audio_buffer.getvalue()
     audio_buffer.close()
 
     if not pcm_bytes:
-        await cl.Message(
-            content="The microphone recording was empty."
-        ).send()
+        await cl.Message(content="The microphone recording was empty.").send()
         return
 
     wav_bytes = pcm_to_wav(
@@ -293,9 +266,7 @@ async def on_audio_end() -> None:
         sample_width=sample_width,
     )
 
-    status_message = cl.Message(
-        content="Transcribing your audio..."
-    )
+    status_message = cl.Message(content="Transcribing your audio...")
     await status_message.send()
 
     files = {
@@ -326,15 +297,11 @@ async def on_audio_end() -> None:
         transcript = result.get("text", "").strip()
 
         if not transcript:
-            status_message.content = (
-                "No speech was detected in the recording."
-            )
+            status_message.content = "No speech was detected in the recording."
             await status_message.update()
             return
 
-        status_message.content = (
-            f"🎤 **You said:** {transcript}"
-        )
+        status_message.content = f"🎤 **You said:** {transcript}"
         await status_message.update()
 
         await process_user_text(transcript)
@@ -347,22 +314,17 @@ async def on_audio_end() -> None:
         await status_message.update()
 
     except httpx.ConnectError:
-        status_message.content = (
-            "Could not connect to the STT service on port 6000."
-        )
+        status_message.content = "Could not connect to the STT service on port 6000."
         await status_message.update()
 
     except httpx.TimeoutException:
-        status_message.content = (
-            "Speech transcription timed out."
-        )
+        status_message.content = "Speech transcription timed out."
         await status_message.update()
 
     except Exception as exc:
-        status_message.content = (
-            f"Speech transcription failed: `{exc}`"
-        )
+        status_message.content = f"Speech transcription failed: `{exc}`"
         await status_message.update()
+
 
 def get_audio_extension(mime_type: str) -> str:
     """Map browser MIME types to appropriate file extensions."""

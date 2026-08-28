@@ -39,7 +39,9 @@ def run_ingestion_pipeline() -> None:
             # Step 1 — Load
             documents = load_pdf(pdf_file)
             if not documents:
-                logger.warning(f"No content extracted from '{pdf_file.name}'. Skipping.")
+                logger.warning(
+                    f"No content extracted from '{pdf_file.name}'. Skipping."
+                )
                 skipped += 1
                 continue
 

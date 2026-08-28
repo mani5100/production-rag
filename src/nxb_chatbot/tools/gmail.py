@@ -19,8 +19,7 @@ logger = logging.getLogger(__name__)
 GMAIL_SCOPES = ["https://mail.google.com/"]
 MEAL_EMAIL_SUBJECT = "Meal Subscription Request — NXB Chatbot"
 MIS_EMAIL_SUBJECT = "MIS Support Request — NXB Chatbot"
-EMPLOYEE_REQUEST_EMAIL_SUBJECT = ("Employee Leave / Work From Home Request — NXB Chatbot")
-
+EMPLOYEE_REQUEST_EMAIL_SUBJECT = "Employee Leave / Work From Home Request — NXB Chatbot"
 
 
 def _get_credentials() -> Credentials:
@@ -42,6 +41,7 @@ def _get_api_resource():
 # Raw LangChain tool instances (used internally by @tool functions below)
 # ---------------------------------------------------------------------------
 
+
 def _send() -> GmailSendMessage:
     return GmailSendMessage(api_resource=_get_api_resource())
 
@@ -57,6 +57,7 @@ def _thread() -> GmailGetThread:
 # ---------------------------------------------------------------------------
 # @tool decorated functions — these are what nodes and the LLM call
 # ---------------------------------------------------------------------------
+
 
 @tool
 def send_meal_subscription_email(
@@ -223,11 +224,13 @@ def send_meal_acknowledgment(name: str, employee_id: str) -> str:
         f"Regards,<br>NXB Chatbot System"
     )
 
-    _send().invoke({
-        "to": [settings.MEAL_DEPARTMENT_EMAIL],
-        "subject": f"Re: {MEAL_EMAIL_SUBJECT}",
-        "message": body,
-    })
+    _send().invoke(
+        {
+            "to": [settings.MEAL_DEPARTMENT_EMAIL],
+            "subject": f"Re: {MEAL_EMAIL_SUBJECT}",
+            "message": body,
+        }
+    )
 
     logger.info(f"Acknowledgment sent for {name} ({employee_id})")
     return "Acknowledgment email sent successfully."
@@ -405,10 +408,7 @@ def send_employee_request_to_gm(
         return "ERROR: Unsupported request type."
 
     request_reference = uuid4().hex
-    subject = (
-        f"{request_type} Request — "
-        f"{employee_name} [{request_reference}]"
-    )
+    subject = f"{request_type} Request — " f"{employee_name} [{request_reference}]"
 
     reason_section = ""
     if reason.strip():
@@ -492,8 +492,8 @@ def send_employee_request_to_gm(
         f"thread_id={thread_id}; "
         f"request_reference={request_reference}"
     )
-    
-    
+
+
 @tool
 def check_gm_employee_request_reply(thread_id: str) -> str:
     """
@@ -508,9 +508,7 @@ def check_gm_employee_request_reply(thread_id: str) -> str:
         The GM reply body, NO_REPLY, or TRACKING_UNAVAILABLE.
     """
     if not thread_id or thread_id.lower() == "none":
-        logger.warning(
-            "GM request reply check skipped because thread_id is missing."
-        )
+        logger.warning("GM request reply check skipped because thread_id is missing.")
         return "TRACKING_UNAVAILABLE"
 
     try:
@@ -555,8 +553,8 @@ def check_gm_employee_request_reply(thread_id: str) -> str:
             exc,
         )
         return "TRACKING_UNAVAILABLE"
-    
-    
+
+
 @tool
 def send_gm_employee_request_acknowledgement(
     thread_id: str,
@@ -585,12 +583,18 @@ def send_gm_employee_request_acknowledgement(
         return "ERROR: Acknowledgement content is empty."
 
     try:
-        thread_data = _get_api_resource().users().threads().get(
-            userId="me",
-            id=thread_id,
-            format="metadata",
-            metadataHeaders=["Subject"],
-        ).execute()
+        thread_data = (
+            _get_api_resource()
+            .users()
+            .threads()
+            .get(
+                userId="me",
+                id=thread_id,
+                format="metadata",
+                metadataHeaders=["Subject"],
+            )
+            .execute()
+        )
 
         original_subject = EMPLOYEE_REQUEST_EMAIL_SUBJECT
 
@@ -616,9 +620,7 @@ def send_gm_employee_request_acknowledgement(
         email["Subject"] = subject
         email.set_content(acknowledgement)
 
-        encoded_message = base64.urlsafe_b64encode(
-            email.as_bytes()
-        ).decode()
+        encoded_message = base64.urlsafe_b64encode(email.as_bytes()).decode()
 
         _get_api_resource().users().messages().send(
             userId="me",
@@ -641,8 +643,8 @@ def send_gm_employee_request_acknowledgement(
             thread_id,
         )
         return f"ERROR: Could not send acknowledgement: {exc}"
-    
-    
+
+
 @tool
 def send_gm_employee_request_acknowledgement(
     thread_id: str,
@@ -671,12 +673,18 @@ def send_gm_employee_request_acknowledgement(
         return "ERROR: Acknowledgement content is empty."
 
     try:
-        thread_data = _get_api_resource().users().threads().get(
-            userId="me",
-            id=thread_id,
-            format="metadata",
-            metadataHeaders=["Subject"],
-        ).execute()
+        thread_data = (
+            _get_api_resource()
+            .users()
+            .threads()
+            .get(
+                userId="me",
+                id=thread_id,
+                format="metadata",
+                metadataHeaders=["Subject"],
+            )
+            .execute()
+        )
 
         original_subject = EMPLOYEE_REQUEST_EMAIL_SUBJECT
 
@@ -702,9 +710,7 @@ def send_gm_employee_request_acknowledgement(
         email["Subject"] = subject
         email.set_content(acknowledgement)
 
-        encoded_message = base64.urlsafe_b64encode(
-            email.as_bytes()
-        ).decode()
+        encoded_message = base64.urlsafe_b64encode(email.as_bytes()).decode()
 
         _get_api_resource().users().messages().send(
             userId="me",

@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     # Startup
     logger.info("Starting up NXB Chatbot...")
-    
+
     await run_startup()
 
     graph, pool = await get_compiled_graph()
@@ -50,21 +50,27 @@ async def lifespan(app: FastAPI):
     logger.info("Postgres connection pool closed.")
 
 
-
 app = FastAPI(
     title=settings.APP_NAME,
     version="0.1.0",
     lifespan=lifespan,
 )
 
-app.add_middleware(CORSMiddleware, allow_origins=["*"],allow_methods=["*"],allow_headers=["*"],)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 app.include_router(chat_router, prefix="/api/v1")
 app.include_router(ingest_router, prefix="/api/v1")
 
+
 @app.get("/health")
 async def health():
     return {"status": "ok", "app": settings.APP_NAME}
+
 
 @app.get("/")
 async def health():

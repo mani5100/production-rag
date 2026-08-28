@@ -60,9 +60,7 @@ class EmployeeConfirmationDecision(BaseModel):
         "unclear",
     ]
 
-    response: str = Field(
-        description="Natural response to show the employee."
-    )
+    response: str = Field(description="Natural response to show the employee.")
 
 
 class GMAcknowledgementResult(BaseModel):
@@ -92,7 +90,8 @@ class AcknowledgementConfirmationDecision(BaseModel):
     ]
 
     response: str
-    
+
+
 class GradeDocuments(BaseModel):
     """
     CRAG grading verdict: whether retrieved_docs actually answer the question.
@@ -105,12 +104,11 @@ class GradeDocuments(BaseModel):
             "the query rewrite if the verdict is irrelevant."
         )
     )
-    
+
+
 class QueryReformulation(BaseModel):
     standalone_query: str = Field(
-        description=(
-            "The complete user question rewritten as a standalone question."
-        )
+        description=("The complete user question rewritten as a standalone question.")
     )
 
     retrieval_queries: list[str] = Field(
@@ -119,6 +117,7 @@ class QueryReformulation(BaseModel):
             "Split independent information needs into separate queries."
         )
     )
+
 
 class QueryRoute(BaseModel):
     """
@@ -137,7 +136,8 @@ class QueryRoute(BaseModel):
     reason: str = Field(
         description="Short explanation for why the query was classified this way."
     )
-    
+
+
 class AnswerReflection(BaseModel):
     grounded: bool = Field(
         description="Whether all factual claims in the generated answer are supported by the retrieved context."

@@ -393,7 +393,6 @@ acknowledgement_confirmation_prompt = ChatPromptTemplate.from_messages(
 )
 
 
-
 GRADE_SYSTEM_PROMPT = """You are a grading assistant for a retrieval-augmented generation system.
 
 Given a user's question and a set of retrieved document chunks, decide whether the

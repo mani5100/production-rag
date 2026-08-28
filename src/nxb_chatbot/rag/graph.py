@@ -27,6 +27,7 @@ from nxb_chatbot.rag.state import ChatState
 
 logger = logging.getLogger(__name__)
 
+
 def route_entry(state: ChatState) -> str:
     meal = state.get("meal_data") or {}
     mis = state.get("mis_data") or {}
@@ -44,15 +45,11 @@ def route_entry(state: ChatState) -> str:
     if mis.get("waiting_for_ack") and not mis.get("acknowledged"):
         return "check_mis_status"
 
-    if (
-        employee_request.get("in_progress")
-        and not employee_request.get("email_sent")
-    ):
+    if employee_request.get("in_progress") and not employee_request.get("email_sent"):
         return "employee_request"
 
-    if (
-        employee_request.get("waiting_for_ack")
-        and not employee_request.get("acknowledged")
+    if employee_request.get("waiting_for_ack") and not employee_request.get(
+        "acknowledged"
     ):
         return "check_employee_request_status"
 
@@ -79,7 +76,7 @@ def route_after_guardrail(state: ChatState) -> str:
 
     if intent == "conversational":
         return "conversational_response"
-    
+
     if intent == "employee_request":
         return "employee_request"
 
@@ -103,6 +100,7 @@ def route_after_grading(state: ChatState) -> str:
         return "web_search"
 
     return "rewrite_query"
+
 
 def route_after_reflection(state: ChatState) -> str:
     """
@@ -128,9 +126,7 @@ def route_after_reflection(state: ChatState) -> str:
 
     # Hard stop against infinite Self-RAG loops
     if reflection_attempts >= 3:
-        logger.warning(
-            "Maximum reflection attempts reached. Ending."
-        )
+        logger.warning("Maximum reflection attempts reached. Ending.")
         return "end"
 
     if action == "pass":
@@ -141,18 +137,15 @@ def route_after_reflection(state: ChatState) -> str:
 
     if action == "retrieve_again":
         if retrieval_attempts >= settings.MAX_RETRIEVAL_ATTEMPTS:
-            logger.warning(
-                "Maximum retrieval attempts reached."
-            )
+            logger.warning("Maximum retrieval attempts reached.")
             return "end"
 
         return "retrieve_again"
 
-    logger.warning(
-        f"Unknown reflection action '{action}'. Ending safely."
-    )
+    logger.warning(f"Unknown reflection action '{action}'. Ending safely.")
 
     return "end"
+
 
 def route_after_retrieval(state: ChatState) -> str:
     """
@@ -167,6 +160,7 @@ def route_after_retrieval(state: ChatState) -> str:
         return "answer_generator"
 
     return "grade_documents"
+
 
 # Graph Builder
 def _build_graph() -> StateGraph:
@@ -188,14 +182,15 @@ def _build_graph() -> StateGraph:
     builder.add_node("mis_request", mis_request_node)
     builder.add_node("check_mis_status", check_mis_status_node)
     builder.add_node("employee_request", employee_request_node)
-    builder.add_node("check_employee_request_status",check_employee_request_status_node)
+    builder.add_node(
+        "check_employee_request_status", check_employee_request_status_node
+    )
     builder.add_node("grade_documents", grade_documents)
     builder.add_node("rewrite_query", rewrite_query)
 
     builder.add_node("meal_subscription", meal_subscription_node)
     builder.add_node("check_meal_status", check_meal_status_node)
-    
-    
+
     # Entry point
     builder.add_conditional_edges(
         START,
@@ -207,12 +202,10 @@ def _build_graph() -> StateGraph:
             "mis_request": "mis_request",
             "check_mis_status": "check_mis_status",
             "employee_request": "employee_request",
-            "check_employee_request_status": (
-                "check_employee_request_status"
-            ),
+            "check_employee_request_status": ("check_employee_request_status"),
         },
     )
-    
+
     builder.add_conditional_edges(
         "guardrail",
         route_after_guardrail,
@@ -222,9 +215,7 @@ def _build_graph() -> StateGraph:
             "mis_request": "mis_request",
             "check_mis_status": "check_mis_status",
             "employee_request": "employee_request",
-            "check_employee_request_status": (
-                "check_employee_request_status"
-            ),
+            "check_employee_request_status": ("check_employee_request_status"),
             "conversational_response": "conversational_response",
             "query_reformulator": "query_reformulator",
             END: END,
@@ -233,16 +224,16 @@ def _build_graph() -> StateGraph:
 
     builder.add_edge("query_reformulator", "adaptive_router")
     builder.add_edge("adaptive_router", "retriever")
-    
+
     builder.add_conditional_edges(
-    "retriever",
-    route_after_retrieval,
-    {
-        "answer_generator": "answer_generator",
-        "grade_documents": "grade_documents",
-    },
-)
-    
+        "retriever",
+        route_after_retrieval,
+        {
+            "answer_generator": "answer_generator",
+            "grade_documents": "grade_documents",
+        },
+    )
+
     builder.add_conditional_edges(
         "grade_documents",
         route_after_grading,
@@ -252,22 +243,20 @@ def _build_graph() -> StateGraph:
             "web_search": "web_search",
         },
     )
-    
 
     builder.add_edge("rewrite_query", "retriever")
     builder.add_edge("web_search", "answer_generator")
-    builder.add_edge("answer_generator","reflect_answer")
+    builder.add_edge("answer_generator", "reflect_answer")
 
     builder.add_conditional_edges(
-    "reflect_answer",
-    route_after_reflection,
-    {
-        "end": END,
-        "regenerate": "answer_generator",
-        "retrieve_again": "rewrite_query",
-    },
-)
-
+        "reflect_answer",
+        route_after_reflection,
+        {
+            "end": END,
+            "regenerate": "answer_generator",
+            "retrieve_again": "rewrite_query",
+        },
+    )
 
     builder.add_edge("meal_subscription", END)
     builder.add_edge("check_meal_status", END)
@@ -283,6 +272,7 @@ def _build_graph() -> StateGraph:
 # ---------------------------------------------------------------------------
 # Compiled Graph Factory
 # ---------------------------------------------------------------------------
+
 
 async def get_compiled_graph():
     """
