@@ -33,3 +33,5 @@ class ChatState(TypedDict):
 
     query_route: str | None
     routing_reason: str | None
+
+    cache_hit: bool | None

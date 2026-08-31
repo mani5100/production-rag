@@ -19,6 +19,7 @@ from nxb_chatbot.rag.nodes import (
     query_reformulator,
     retriever,
     rewrite_query,
+    semantic_cache_lookup,
     web_search,
     reflect_answer,
     adaptive_router,
@@ -84,6 +85,18 @@ def route_after_guardrail(state: ChatState) -> str:
         return "check_employee_request_status"
 
     return "query_reformulator"
+
+
+def route_after_cache_lookup(state: ChatState) -> str:
+    """
+    After semantic_cache_lookup:
+    - cache_hit=True   → END (cached answer already placed in messages)
+    - cache_hit=False  → adaptive_router (continue normal CRAG flow)
+    """
+    if state.get("cache_hit"):
+        return END
+
+    return "adaptive_router"
 
 
 def route_after_grading(state: ChatState) -> str:
@@ -173,6 +186,7 @@ def _build_graph() -> StateGraph:
     # Nodes
     builder.add_node("guardrail", guardrail)
     builder.add_node("query_reformulator", query_reformulator)
+    builder.add_node("semantic_cache_lookup", semantic_cache_lookup)
     builder.add_node("adaptive_router", adaptive_router)
     builder.add_node("retriever", retriever)
     builder.add_node("web_search", web_search)
@@ -222,7 +236,17 @@ def _build_graph() -> StateGraph:
         },
     )
 
-    builder.add_edge("query_reformulator", "adaptive_router")
+    builder.add_edge("query_reformulator", "semantic_cache_lookup")
+
+    builder.add_conditional_edges(
+        "semantic_cache_lookup",
+        route_after_cache_lookup,
+        {
+            "adaptive_router": "adaptive_router",
+            END: END,
+        },
+    )
+
     builder.add_edge("adaptive_router", "retriever")
 
     builder.add_conditional_edges(

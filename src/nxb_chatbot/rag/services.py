@@ -68,11 +68,15 @@ def get_tavily_search() -> TavilySearchResults:
     """
     Returns a Tavily search tool scoped to NextBridge related queries.
     Used as fallback when RAG retrieval score is below threshold.
+
+    Restricted to nextbridge.com so results can't come from unrelated
+    companies or generic pages that happen to match the query text.
     """
     os.environ["TAVILY_API_KEY"] = settings.TAVILY_API_KEY
     return TavilySearchResults(
         max_results=settings.TAVILY_MAX_RESULTS,
         api_key=settings.TAVILY_API_KEY,
+        include_domains=["nextbridge.com"],
     )
 
 

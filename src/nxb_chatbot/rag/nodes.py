@@ -6,6 +6,8 @@ from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.types import interrupt
 
+from nxb_chatbot.rag.semantic_cache import check_semantic_cache, store_semantic_cache
+
 from nxb_chatbot.core.config import settings
 from nxb_chatbot.rag.prompts import (
     MEAL_CHOICE_PROMPT,
@@ -213,6 +215,38 @@ def query_reformulator(state: ChatState, config: RunnableConfig) -> dict:
         "grade_reason": None,
     }
 
+
+# Node — Semantic Cache Lookup
+def semantic_cache_lookup(state: ChatState, config: RunnableConfig) -> dict:
+    """
+    Checks the semantic cache for a previously-approved answer to a
+    semantically similar standalone_query.
+
+    Only ever called on the knowledge-lookup path (after guardrail has
+    already routed intent to query_reformulator). Never runs for the
+    stateful meal/mis/employee_request flows or conversational_response,
+    since those bypass this node in the graph entirely.
+
+    On hit: returns the cached answer as the AI message and sets
+    cache_hit=True, so route_after_cache_lookup can route straight to END.
+
+    On miss: sets cache_hit=False and lets the graph continue normally
+    to adaptive_router.
+    """
+    query = state["standalone_query"]
+
+    hit = check_semantic_cache(query)
+
+    if hit is None:
+        return {"cache_hit": False}
+
+    return {
+        "cache_hit": True,
+        "generated_answer": hit["response"],
+        "retrieved_docs": [],
+        "web_search_used": False,
+        "messages": [AIMessage(content=hit["response"])],
+    }
 
 # Node — Adaptive Router
 def adaptive_router(state: ChatState, config: RunnableConfig) -> dict:
@@ -1506,6 +1540,13 @@ def reflect_answer(state: ChatState, config: RunnableConfig) -> dict:
     )
 
     logger.info(f"Reflection feedback: {result.feedback}")
+
+    if result.action == "pass" and not state.get("web_search_used"):
+        store_semantic_cache(
+            query=question,
+            answer=answer,
+            retrieved_docs=docs,
+        )
 
     return {
         "reflection_action": result.action,

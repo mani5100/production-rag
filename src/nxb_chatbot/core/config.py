@@ -50,6 +50,13 @@ class Settings(BaseSettings):
     EMBEDDING_DIMENSIONS: int = 768
     EMBEDDING_BATCH_SIZE: int = 16
 
+    REDIS_URL: str = "redis://localhost:6379"
+    SEMANTIC_CACHE_ENABLED: bool = True
+    SEMANTIC_CACHE_INDEX_NAME: str = "nxb_semantic_cache"
+    SEMANTIC_CACHE_THRESHOLD: float = 0.95
+    SEMANTIC_CACHE_TTL: int = 86400
+    
+    
     GM_EMAIL: str
     
     MAX_RETRIEVAL_ATTEMPTS: int = 2
