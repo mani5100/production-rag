@@ -18,6 +18,7 @@ class ChatState(TypedDict):
     generated_answer: str | None
 
     guardrail_passed: bool | None
+    route_intent: str | None
     web_search_used: bool | None
 
     retrieval_attempts: int
