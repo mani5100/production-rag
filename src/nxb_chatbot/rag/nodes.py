@@ -206,6 +206,9 @@ def query_reformulator(state: ChatState, config: RunnableConfig) -> dict:
     logger.info(f"Reformulated query: {standalone_query}")
     logger.info(f"Retrieval queries: {retrieval_queries}")
 
+    if response.force_web_search:
+        logger.info("User explicitly requested a web search — bypassing internal retrieval.")
+
     return {
         "standalone_query": standalone_query,
         "retrieval_queries": retrieval_queries,
@@ -213,6 +216,8 @@ def query_reformulator(state: ChatState, config: RunnableConfig) -> dict:
         "retrieval_attempts": 0,
         "grade_verdict": None,
         "grade_reason": None,
+        "force_web_search": response.force_web_search,
+        "web_search_attempts": 0
     }
 
 
@@ -417,7 +422,12 @@ def rewrite_query(state: ChatState, config: RunnableConfig) -> dict:
     Loops back to retriever.
     """
 
-    original_question = state["messages"][-1].content
+    # Use the already alias-normalized standalone_query as the intent anchor,
+    # not the raw last message — the raw text can carry noise (e.g. a
+    # trailing "do web search" instruction) that the rewrite LLM may
+    # misparse as part of the entity name, regressing an already-correct
+    # query on retry.
+    original_question = state["standalone_query"]
     previous_query = state["standalone_query"]
 
     grade_reason = (
@@ -488,7 +498,12 @@ def web_search(state: ChatState, config: RunnableConfig) -> dict:
 
     logger.info(f"Web search returned {len(web_docs)} results.")
 
-    return {"retrieved_docs": web_docs, "web_search_used": True}
+    result = {"retrieved_docs": web_docs, "web_search_used": True}
+
+    if state.get("force_web_search"):
+        result["web_search_attempts"] = state.get("web_search_attempts", 0) + 1
+
+    return result
 
 
 # Node 5 — Answer Generator

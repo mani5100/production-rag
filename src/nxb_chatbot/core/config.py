@@ -28,7 +28,8 @@ class Settings(BaseSettings):
     LANGSMITH_PROJECT: str = "nxb-chatbot"
 
     TAVILY_API_KEY: str
-    TAVILY_MAX_RESULTS: int = 2
+    TAVILY_MAX_RESULTS: int = 5
+    TAVILY_INCLUDE_DOMAINS: str = "nextbridge.com"
 
     RERANK_SCORE_THRESHOLD: float = 0.3
 
@@ -62,6 +63,9 @@ class Settings(BaseSettings):
     GM_EMAIL: str
     
     MAX_RETRIEVAL_ATTEMPTS: int = 2
+    
+    SIMPLE_ROUTE_RELEVANCE_FLOOR: float = 0.3
+    MAX_WEB_SEARCH_ATTEMPTS: int = 2
 
     # Guardrail
     model_config = SettingsConfigDict(

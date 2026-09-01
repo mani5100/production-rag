@@ -28,6 +28,7 @@ llm = ChatOllama(
     base_url=settings.OLLAMA_BASE_URL,
     num_ctx=8192,
     num_predict=settings.LLM_MAX_TOKENS,
+    reasoning=True
 )
 # Context Formatter
 
@@ -70,12 +71,21 @@ def get_tavily_search() -> TavilySearchResults:
     Used as fallback when RAG retrieval score is below threshold.
 
     Restricted to nextbridge.com so results can't come from unrelated
-    companies or generic pages that happen to match the query text.
+    companies or generic third-party directory/profile pages that happen
+    to match the query text.
     """
     os.environ["TAVILY_API_KEY"] = settings.TAVILY_API_KEY
+
+    include_domains = [
+        domain.strip()
+        for domain in settings.TAVILY_INCLUDE_DOMAINS.split(",")
+        if domain.strip()
+    ]
+
     return TavilySearchResults(
         max_results=settings.TAVILY_MAX_RESULTS,
-        api_key=settings.TAVILY_API_KEY
+        api_key=settings.TAVILY_API_KEY,
+        # include_domains=include_domains,
     )
 
 

@@ -100,20 +100,31 @@ def route_after_cache_lookup(state: ChatState) -> str:
 
 
 def route_after_grading(state: ChatState) -> str:
-    """
-    After grade_documents node:
-    - relevant                        → answer_generator
-    - irrelevant, retries remaining   → rewrite_query (loops back to retriever)
-    - irrelevant, retries exhausted   → web_search
-    """
     if state.get("grade_verdict") == "relevant":
         return "answer_generator"
+
+    if state.get("force_web_search"):
+        if state.get("web_search_attempts", 0) >= settings.MAX_WEB_SEARCH_ATTEMPTS:
+            return "answer_generator"
+        return "rewrite_query"
 
     if state.get("retrieval_attempts", 0) >= settings.MAX_RETRIEVAL_ATTEMPTS:
         return "web_search"
 
     return "rewrite_query"
 
+def route_after_reformulation(state: ChatState) -> str:
+    """
+    After query_reformulator:
+    - force_web_search=True  → web_search directly (bypasses semantic cache
+      and internal retrieval entirely — the user explicitly asked for a
+      live web lookup, not a cached or internally-retrieved answer)
+    - force_web_search=False → semantic_cache_lookup (normal path)
+    """
+    if state.get("force_web_search"):
+        return "web_search"
+
+    return "semantic_cache_lookup"
 
 def route_after_reflection(state: ChatState) -> str:
     """
@@ -170,6 +181,32 @@ def route_after_retrieval(state: ChatState) -> str:
     Complex queries continue through the full CRAG grading flow.
     """
     if state.get("query_route") == "simple":
+        return "answer_generator"
+
+    return "grade_documents"
+
+def route_after_rewrite(state: ChatState) -> str:
+    """
+    After rewrite_query:
+    - force_web_search=True  → web_search (forced-web-search retry loop)
+    - force_web_search=False → retriever (normal CRAG retry loop, unchanged)
+    """
+    if state.get("force_web_search"):
+        return "web_search"
+
+    return "retriever"
+
+
+def route_after_web_search(state: ChatState) -> str:
+    """
+    After web_search:
+    - CRAG fallback path (force_web_search=False) → answer_generator,
+      unchanged from current behavior.
+    - Forced web search path (force_web_search=True) → grade_documents,
+      so results get the same LLM-based relevance judgment the internal
+      CRAG path already uses, instead of a raw Tavily score threshold.
+    """
+    if not state.get("force_web_search"):
         return "answer_generator"
 
     return "grade_documents"
@@ -236,7 +273,14 @@ def _build_graph() -> StateGraph:
         },
     )
 
-    builder.add_edge("query_reformulator", "semantic_cache_lookup")
+    builder.add_conditional_edges(
+        "query_reformulator",
+        route_after_reformulation,
+        {
+            "semantic_cache_lookup": "semantic_cache_lookup",
+            "web_search": "web_search",
+        },
+    )
 
     builder.add_conditional_edges(
         "semantic_cache_lookup",
@@ -268,8 +312,23 @@ def _build_graph() -> StateGraph:
         },
     )
 
-    builder.add_edge("rewrite_query", "retriever")
-    builder.add_edge("web_search", "answer_generator")
+    builder.add_conditional_edges(
+        "rewrite_query",
+        route_after_rewrite,
+        {
+            "retriever": "retriever",
+            "web_search": "web_search",
+        },
+    )
+
+    builder.add_conditional_edges(
+        "web_search",
+        route_after_web_search,
+        {
+            "answer_generator": "answer_generator",
+            "grade_documents": "grade_documents",
+        },
+    )
     builder.add_edge("answer_generator", "reflect_answer")
 
     builder.add_conditional_edges(

@@ -99,6 +99,31 @@ What are the maternity and sick leave policies at NextBridge?
 Retrieval queries:
 - What are the maternity and sick leave policies at NextBridge?
 
+Web search detection:
+
+- Also determine whether the user explicitly asked to search the web, search
+  online, google something, or otherwise requested a live internet lookup
+  instead of the internal knowledge base.
+- Set force_web_search to True only for explicit requests of this kind
+  (e.g. "do a web search", "search online for this", "google it",
+  "look this up on the internet").
+- Set force_web_search to False for ordinary questions with no such request,
+  even if the answer might not be in the internal knowledge base.
+- The standalone_query and retrieval_queries should still be produced
+  normally regardless of force_web_search — only strip the web-search
+  instruction itself out of them, keep the actual information need.
+  
+User:
+does nxb met gitex do web search
+
+Standalone query:
+Did NextBridge attend or participate in Gitex?
+
+Retrieval queries:
+- Did NextBridge attend or participate in Gitex?
+
+force_web_search: True
+
 Do not answer the user's question.
 """
 
@@ -428,6 +453,10 @@ or wording more likely to appear in official company documents.
 Rules:
 - Preserve the original intent of the question exactly.
 - Do not invent details that were not in the original question.
+- "NXB", "Next Bridge", "NextBridge Ltd", and "NextBridge Limited" all refer
+  to the single company NextBridge. Always normalize to "NextBridge".
+- Never treat instruction fragments (e.g. "do a web search", "search online",
+  "google it") as part of an entity name.
 - Return ONLY the rewritten query. No explanation, no preamble.
 
 Original question: {original_question}

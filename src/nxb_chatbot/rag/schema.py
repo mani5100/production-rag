@@ -118,6 +118,16 @@ class QueryReformulation(BaseModel):
         )
     )
 
+    force_web_search: bool = Field(
+        default=False,
+        description=(
+            "True if the user's message explicitly asks to search the web, "
+            "search online, google something, or otherwise requests a live "
+            "internet lookup rather than the internal knowledge base. "
+            "False otherwise."
+        ),
+    )
+
 
 class QueryRoute(BaseModel):
     """
