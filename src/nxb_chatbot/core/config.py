@@ -56,6 +56,8 @@ class Settings(BaseSettings):
     SEMANTIC_CACHE_THRESHOLD: float = 0.95
     SEMANTIC_CACHE_TTL: int = 86400
     
+    RERANK_SCORE_THRESHOLD: float = 0.3
+    SIMPLE_ROUTE_RELEVANCE_FLOOR: float = 0.3
     
     GM_EMAIL: str
     

@@ -363,7 +363,21 @@ def retriever(state: ChatState, config: RunnableConfig) -> dict:
         f"from {len(queries)} retrieval queries."
     )
 
-    return {"retrieved_docs": serializable_docs}
+    top_score = max(
+        (d["metadata"].get("relevance_score", 0.0) for d in serializable_docs),
+        default=0.0,
+    )
+
+    query_route = state.get("query_route")
+
+    if query_route == "simple" and top_score < settings.SIMPLE_ROUTE_RELEVANCE_FLOOR:
+        logger.info(
+            f"Escalating 'simple' -> 'complex': top relevance_score={top_score:.4f} "
+            f"below floor={settings.SIMPLE_ROUTE_RELEVANCE_FLOOR}"
+        )
+        query_route = "complex"
+
+    return {"retrieved_docs": serializable_docs, "query_route": query_route}
 
 
 # Node — Grade Documents (CRAG)
@@ -450,7 +464,7 @@ def web_search(state: ChatState, config: RunnableConfig) -> dict:
     Results formatted as retrieved_docs for answer_generator.
     """
     query = state["standalone_query"]
-    scoped_query = f"NextBridge {query}"
+    scoped_query = f"Nextbridge Ltd Lahore Pakistan software company {query}"
 
     logger.info(f"Triggering web search for: {scoped_query}")
 
@@ -1536,12 +1550,28 @@ def reflect_answer(state: ChatState, config: RunnableConfig) -> dict:
         f"action={result.action}, "
         f"grounded={result.grounded}, "
         f"complete={result.complete}, "
-        f"relevant={result.relevant}"
+        f"relevant={result.relevant}, "
+        f"answer_found={result.answer_found}"
     )
 
     logger.info(f"Reflection feedback: {result.feedback}")
 
-    if result.action == "pass" and not state.get("web_search_used"):
+    action = result.action
+    query_route = state.get("query_route")
+
+    # A 'simple'-routed query never went through CRAG grading, so a
+    # well-formed "not found" answer may just mean the fast path never
+    # verified retrieval quality — escalate into the full CRAG loop
+    # rather than trusting a clean pass.
+    if query_route == "simple" and not result.answer_found and action == "pass":
+        logger.info(
+            "Escalating 'simple' -> 'complex': answer_found=False on the "
+            "un-graded fast path. Routing back through full CRAG."
+        )
+        action = "retrieve_again"
+        query_route = "complex"
+
+    if action == "pass" and not state.get("web_search_used"):
         store_semantic_cache(
             query=question,
             answer=answer,
@@ -1549,12 +1579,14 @@ def reflect_answer(state: ChatState, config: RunnableConfig) -> dict:
         )
 
     return {
-        "reflection_action": result.action,
+        "reflection_action": action,
         "reflection_reason": (
             f"grounded={result.grounded}, "
             f"complete={result.complete}, "
-            f"relevant={result.relevant}"
+            f"relevant={result.relevant}, "
+            f"answer_found={result.answer_found}"
         ),
         "reflection_feedback": result.feedback,
         "reflection_attempts": reflection_attempts,
+        "query_route": query_route,
     }

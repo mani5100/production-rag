@@ -464,6 +464,15 @@ RELEVANCE
 - The answer must directly address the user's request.
 - Avoid unrelated or unnecessary information.
 
+ANSWER_FOUND
+- Set answer_found to False if the answer states or implies that the requested
+  information could not be found, was not mentioned, or is unavailable in the
+  provided context.
+- Set answer_found to True if the answer actually supplies the requested
+  information.
+- This is independent of grounded/complete/relevant — judge it purely on
+  whether the answer delivers the requested information or reports its absence.
+
 Choose exactly one action:
 
 pass

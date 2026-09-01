@@ -151,6 +151,18 @@ class AnswerReflection(BaseModel):
         description="Whether the generated answer directly answers the user's question without unnecessary or unrelated content."
     )
 
+    answer_found: bool = Field(
+        description=(
+            "True if the generated answer actually supplies the requested "
+            "information. False if the answer states or implies that the "
+            "information could not be found, is not mentioned, or is "
+            "unavailable in the provided context. This is independent of "
+            "grounded/complete/relevant — a well-formed 'not found' answer "
+            "can still be grounded, complete, and relevant to a context "
+            "that simply lacks the information."
+        )
+    )
+
     action: Literal["pass", "regenerate", "retrieve_again"] = Field(
         description=(
             "pass: answer is acceptable; "

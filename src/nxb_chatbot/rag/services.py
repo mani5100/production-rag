@@ -75,8 +75,7 @@ def get_tavily_search() -> TavilySearchResults:
     os.environ["TAVILY_API_KEY"] = settings.TAVILY_API_KEY
     return TavilySearchResults(
         max_results=settings.TAVILY_MAX_RESULTS,
-        api_key=settings.TAVILY_API_KEY,
-        include_domains=["nextbridge.com"],
+        api_key=settings.TAVILY_API_KEY
     )
 
 
