@@ -212,6 +212,7 @@ def query_reformulator(state: ChatState, config: RunnableConfig) -> dict:
     return {
         "standalone_query": standalone_query,
         "retrieval_queries": retrieval_queries,
+        "retrieved_docs": [],
         "web_search_used": False,
         "retrieval_attempts": 0,
         "grade_verdict": None,
@@ -367,6 +368,36 @@ def retriever(state: ChatState, config: RunnableConfig) -> dict:
         f"Retrieved and merged → {len(serializable_docs)} unique chunks "
         f"from {len(queries)} retrieval queries."
     )
+
+    # Merge with docs already found earlier in this same turn's CRAG loop
+    # (via rewrite_query or reflect_answer's retrieve_again), so a chunk
+    # found on an earlier attempt survives even if a later rewritten query
+    # doesn't happen to retrieve it again. query_reformulator resets
+    # retrieved_docs to [] at the start of every new turn, so this never
+    # pulls in leftovers from a previous, unrelated question.
+    previous_docs = state.get("retrieved_docs") or []
+
+    if previous_docs:
+        merged_by_id = {}
+
+        for doc in previous_docs + serializable_docs:
+            doc_id = doc["metadata"].get("_id") or (
+                doc["metadata"].get("file_name"),
+                doc["metadata"].get("page"),
+                doc["page_content"][:100],
+            )
+            merged_by_id[doc_id] = doc
+
+        serializable_docs = sorted(
+            merged_by_id.values(),
+            key=lambda d: d["metadata"].get("relevance_score", 0.0),
+            reverse=True,
+        )[: settings.RERANKER_TOP_N]
+
+        logger.info(
+            f"Merged with {len(previous_docs)} doc(s) from earlier attempt(s) "
+            f"this turn → {len(serializable_docs)} after dedup/cap."
+        )
 
     top_score = max(
         (d["metadata"].get("relevance_score", 0.0) for d in serializable_docs),
@@ -534,6 +565,13 @@ def answer_generator(state: ChatState, config: RunnableConfig) -> dict:
     response = chain.invoke(invoke_payload, config=config)
 
     answer_text = response.content.strip()
+
+    if not answer_text:
+        logger.warning(
+            "Answer generator returned an empty completion — retrying once."
+        )
+        response = chain.invoke(invoke_payload, config=config)
+        answer_text = response.content.strip()
 
     logger.info("Answer generated.")
 

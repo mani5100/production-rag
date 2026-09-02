@@ -47,6 +47,11 @@ class Settings(BaseSettings):
     LLM_MODEL: str = "qwen3:8b"
     LLM_MAX_TOKENS: int = 4096
 
+    # Query expansion (MultiQueryRetriever) — kept deterministic and separate
+    # from LLM_TEMPERATURE so retrieval doesn't depend on sampling luck.
+    QUERY_EXPANSION_TEMPERATURE: float = 0.0
+    QUERY_EXPANSION_SEED: int = 42
+
     EMBEDDING_MODEL: str = "nomic-embed-text"
     EMBEDDING_DIMENSIONS: int = 768
     EMBEDDING_BATCH_SIZE: int = 16

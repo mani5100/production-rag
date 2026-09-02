@@ -453,11 +453,37 @@ GRADE_SYSTEM_PROMPT = """You are a grading assistant for a retrieval-augmented g
 Given a user's question and a set of retrieved document chunks, decide whether the
 chunks contain enough information to answer the question.
 
-Rules:
-- Grade "relevant" only if the chunks actually contain information that answers the question.
-- Grade "irrelevant" if the chunks are off-topic, incomplete, or don't address the question.
-- Be strict. Partial or tangential matches should be graded "irrelevant".
+Judge relevance by information, not wording:
+- Grade "relevant" if the chunks substantively answer the question's underlying
+  information need — even if they use different words, more specific names,
+  category members, or alternate phrasing than the question did.
+- A question may name a general category, role, or type (e.g. a kind of place,
+  title, or product) while the document names a specific instance of that same
+  category (e.g. a named branch, a specific job title, a particular model).
+  That is not a mismatch — grade it "relevant" if the specific instance actually
+  provides the requested information.
+- Grade "irrelevant" only if the chunks are genuinely about a different topic,
+  or fail to provide the specific fact the question asks for — not because they
+  use different terminology for the same real-world thing.
+- Be strict about substance: partial answers and tangential topics are still
+  "irrelevant". Never be strict about phrasing alone.
 - Give a short, specific reason. It will be used to rewrite the search query if needed.
+
+Examples:
+
+Question: "Which vendors offer discounts on laptops?"
+Context: "TechHub Electronics — 15% off all ThinkPad and MacBook models for
+corporate accounts."
+Verdict: relevant
+Reason: TechHub is a vendor and the discount covers laptops, even though the
+document names specific models rather than the word "laptop".
+
+Question: "Which vendors offer discounts on laptops?"
+Context: "TechHub Electronics — 15% off all office chairs and desks for
+corporate accounts."
+Verdict: irrelevant
+Reason: Same vendor, but the discount is on furniture, not laptops — a
+genuinely different topic despite the surface overlap.
 
 Question:
 {question}

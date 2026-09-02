@@ -7,6 +7,7 @@ from langchain_classic.retrievers import (
     ContextualCompressionRetriever,
     MultiQueryRetriever,
 )
+from langchain_ollama import ChatOllama
 
 from nxb_chatbot.core.config import settings
 
@@ -26,7 +27,7 @@ def get_reranking_retriever(
     """
     compressor = FlashrankRerank(
         model="ms-marco-MiniLM-L-12-v2",
-        top_n=settings.RERANKER_TOP_N,
+        top_n=10,
     )
 
     return ContextualCompressionRetriever(
@@ -42,15 +43,28 @@ def get_multi_query_retriever(
     Wraps a base Qdrant retriever with multi-query expansion.
 
     Flow:
-        LLM generates 3-5 rephrasings of the user's query
+        The original query always runs verbatim (include_original=True),
+        plus the LLM generates 3-5 rephrasings of it
             ↓
-        base_retriever runs once per rephrasing
+        base_retriever runs once per query/rephrasing
             ↓
         Results are merged and deduplicated
+
+    Query generation uses a dedicated low-temperature, seeded LLM instance
+    instead of the shared `llm` (temperature=LLM_TEMPERATURE, used for
+    generation/reflection/grading) so the candidate pool handed to the
+    reranker is reproducible across runs rather than depending on sampling
+    variance in the paraphrases.
     """
-    from nxb_chatbot.rag.services import llm
+    expansion_llm = ChatOllama(
+        model=settings.LLM_MODEL,
+        temperature=settings.QUERY_EXPANSION_TEMPERATURE,
+        base_url=settings.OLLAMA_BASE_URL,
+        seed=settings.QUERY_EXPANSION_SEED,
+    )
 
     return MultiQueryRetriever.from_llm(
         retriever=base_retriever,
-        llm=llm,
+        llm=expansion_llm,
+        include_original=True,
     )

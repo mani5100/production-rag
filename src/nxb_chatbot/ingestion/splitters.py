@@ -5,6 +5,7 @@ from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from nxb_chatbot.core.config import settings
+from nxb_chatbot.ingestion.cleaners import clean_prose, flatten_table, is_boilerplate
 
 logger = logging.getLogger(__name__)
 
@@ -76,8 +77,13 @@ def _extract_segments(text: str) -> list[dict]:
 def split_documents(documents: list[Document]) -> list[Document]:
     """
     Split a list of Documents into chunks:
-    - Table blocks → single atomic chunk (never split), has_table=True
-    - Text blocks  → RecursiveCharacterTextSplitter, has_table=False
+    - Table blocks → cleaned via flatten_table(), single atomic chunk
+      (never split), has_table=True
+    - Text blocks  → cleaned via clean_prose(), then
+      RecursiveCharacterTextSplitter, has_table=False
+
+    Chunks below the minimum content length after cleaning (e.g. lone
+    page headers like "Nextbridge (Private) Limited") are dropped.
 
     Original metadata is preserved on every chunk.
     """
@@ -88,6 +94,7 @@ def split_documents(documents: list[Document]) -> list[Document]:
     )
 
     all_chunks: list[Document] = []
+    dropped_boilerplate = 0
 
     for doc in documents:
         segments = _extract_segments(doc.page_content)
@@ -96,15 +103,27 @@ def split_documents(documents: list[Document]) -> list[Document]:
             base_metadata = {**doc.metadata, "has_table": segment["is_table"]}
 
             if segment["is_table"]:
+                cleaned_content = flatten_table(segment["content"])
+
+                if is_boilerplate(cleaned_content):
+                    dropped_boilerplate += 1
+                    continue
+
                 all_chunks.append(
                     Document(
-                        page_content=segment["content"],
+                        page_content=cleaned_content,
                         metadata=base_metadata,
                     )
                 )
             else:
+                cleaned_content = clean_prose(segment["content"])
+
+                if is_boilerplate(cleaned_content):
+                    dropped_boilerplate += 1
+                    continue
+
                 chunks = text_splitter.create_documents(
-                    texts=[segment["content"]],
+                    texts=[cleaned_content],
                     metadatas=[base_metadata],
                 )
                 all_chunks.extend(chunks)
@@ -112,7 +131,8 @@ def split_documents(documents: list[Document]) -> list[Document]:
     table_count = sum(1 for c in all_chunks if c.metadata.get("has_table"))
     logger.info(
         f"Split {len(documents)} pages → {len(all_chunks)} chunks "
-        f"({table_count} table chunks, {len(all_chunks) - table_count} text chunks)"
+        f"({table_count} table chunks, {len(all_chunks) - table_count} text chunks, "
+        f"{dropped_boilerplate} boilerplate chunks dropped)"
     )
 
     return all_chunks
