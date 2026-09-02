@@ -4,6 +4,8 @@ from pathlib import Path
 from langchain_core.documents import Document
 from langchain_pymupdf4llm import PyMuPDF4LLMLoader
 
+from nxb_chatbot.ingestion.doc_context import get_doc_context
+
 logger = logging.getLogger(__name__)
 
 from nxb_chatbot.core.config import settings
@@ -18,10 +20,12 @@ def load_pdf(file_path: Path) -> list[Document]:
             mode="page",
         )
         documents = loader.load()
+        doc_context = get_doc_context(file_path.name)
 
         # Enrich metadata — loader does not set these by default
         for doc in documents:
             doc.metadata["file_name"] = file_path.name
+            doc.metadata["doc_context"] = doc_context
             # Convert 0-indexed to 1-indexed page numbers
             if "page" in doc.metadata:
                 doc.metadata["page"] = doc.metadata["page"] + 1

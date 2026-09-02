@@ -19,6 +19,7 @@ Both internally call repair_unicode() first.
 
 import re
 import logging
+from collections import Counter
 
 logger = logging.getLogger(__name__)
 
@@ -110,15 +111,87 @@ def clean_prose(text: str) -> str:
 
 _TABLE_SEPARATOR_RE = re.compile(r"^\s*\|?[\s:|-]+\|?\s*$")
 
+def _row_matches_header(row: list[str], header: list[str], threshold: float = 0.5) -> bool:
+    """
+    Detects a row that is actually a repeated/restarted header
+    (common when a table spans multiple sections, e.g. one sub-table
+    per city, each restarting with its own "SR. | NAME OF BRANCH |
+    Discount | ADDRESS | PHONE #" row).
+
+    Compares cell-by-cell (case-insensitive) against the original
+    header; if enough cells match, treat this as a new header rather
+    than a data row.
+    """
+    if not row or not header:
+        return False
+
+    matches = 0
+    compared = 0
+    for r_cell, h_cell in zip(row, header):
+        r_norm = r_cell.strip().lower()
+        h_norm = h_cell.strip().lower()
+        if not h_norm:
+            continue
+        compared += 1
+        if r_norm == h_norm:
+            matches += 1
+
+    if compared == 0:
+        return False
+    return (matches / compared) >= threshold
+
+def _find_repeated_prefix_cell_count(rows: list[list[str]]) -> int:
+    """
+    Detects a block of leading cells that repeats identically across
+    most data rows - an Excel "repeat rows at top" / frozen-header
+    export artifact, where the header plus a few sample rows get
+    baked as literal leading cells into every printed row-group of
+    a table that spans multiple pages.
+
+    Returns how many leading cells to drop from each row, or 0 if
+    no such repetition is detected.
+    """
+    if len(rows) < 4:
+        return 0
+
+    candidate_lengths = [len(r) for r in rows if len(r) > 3]
+    if not candidate_lengths:
+        return 0
+
+    max_check = min(min(candidate_lengths), 40)  # sanity cap
+    if max_check < 2:
+        return 0
+
+    best_len = 0
+    for cut in range(2, max_check):
+        sample = [tuple(r[:cut]) for r in rows if len(r) > cut]
+        if len(sample) < len(rows) * 0.6:
+            continue
+
+        counts = Counter(sample)
+        _, freq = counts.most_common(1)[0]
+
+        if freq >= len(sample) * 0.6:
+            best_len = cut
+        else:
+            break
+
+    return best_len
+
 
 def flatten_table(text: str) -> str:
     """
     Convert a raw markdown pipe-table block into readable sentences,
     one per data row, using the header row as field labels.
 
+    Handles two known export artifacts:
+    - Repeated header rows mid-block (one sub-section per city, each
+      restarting its own header row).
+    - Frozen-prefix duplication (header + sample rows baked as
+      literal leading cells into every row of a multi-page table).
+
     Falls back to a best-effort tag/pipe strip if the block doesn't
-    parse as a clean table (e.g. merged/irregular rows, section
-    headers embedded inside the table body).
+    parse as a clean table at all.
     """
     if not text:
         return text
@@ -129,7 +202,7 @@ def flatten_table(text: str) -> str:
     parsed_rows: list[list[str]] = []
     for row in rows:
         if _TABLE_SEPARATOR_RE.match(row):
-            continue  # skip the |---|---| separator row
+            continue
 
         cells = row.split("|")
         if cells and cells[0].strip() == "":
@@ -140,7 +213,7 @@ def flatten_table(text: str) -> str:
         cleaned_cells = []
         for cell in cells:
             cell = repair_unicode(cell)
-            cell = _HTML_TAG_RE.sub(", ", cell)  # <br> -> ", " inside a cell
+            cell = _HTML_TAG_RE.sub(", ", cell)
             cell = _MD_BOLD_RE.sub(r"\1", cell)
             cell = _MD_UNDERSCORE_BOLD_RE.sub(r"\1", cell)
             cell = re.sub(r"\s+", " ", cell).strip(" ,")
@@ -150,11 +223,7 @@ def flatten_table(text: str) -> str:
             parsed_rows.append(cleaned_cells)
 
     if len(parsed_rows) < 2:
-        # Not enough structure to treat as header + data; fall back to
-        # a plain strip so we at least remove tags/pipes.
-        logger.warning(
-            "flatten_table: could not parse table structure, using fallback strip"
-        )
+        logger.warning("flatten_table: could not parse table structure, using fallback strip")
         fallback = _HTML_TAG_RE.sub(" ", text)
         fallback = fallback.replace("|", " ")
         fallback = re.sub(r"\s+", " ", fallback).strip()
@@ -163,8 +232,28 @@ def flatten_table(text: str) -> str:
     header = parsed_rows[0]
     data_rows = parsed_rows[1:]
 
+    # Strip frozen-prefix duplication BEFORE checking for repeated
+    # headers, so a genuine repeated header aligns correctly once
+    # the leading junk is removed.
+    prefix_len = _find_repeated_prefix_cell_count(data_rows)
+    if prefix_len:
+        logger.info(
+            f"flatten_table: stripping {prefix_len} repeated frozen-prefix "
+            f"cell(s) from {len(data_rows)} rows"
+        )
+        data_rows = [
+            row[prefix_len:] if len(row) > prefix_len else row
+            for row in data_rows
+        ]
+
     sentences = []
+    skipped_repeated_headers = 0
+
     for row in data_rows:
+        if _row_matches_header(row, header):
+            skipped_repeated_headers += 1
+            continue
+
         parts = []
         for label, value in zip(header, row):
             label = label.strip()
@@ -178,9 +267,10 @@ def flatten_table(text: str) -> str:
         if parts:
             sentences.append(". ".join(parts) + ".")
 
+    if skipped_repeated_headers:
+        logger.info(f"flatten_table: skipped {skipped_repeated_headers} repeated header row(s)")
+
     return "\n".join(sentences)
-
-
 # ---------------------------------------------------------------------------
 # Boilerplate detection (used by splitters.py for the min-content filter)
 # ---------------------------------------------------------------------------

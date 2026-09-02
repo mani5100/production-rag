@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     TAVILY_MAX_RESULTS: int = 5
     TAVILY_INCLUDE_DOMAINS: str = "nextbridge.com"
 
-    RERANK_SCORE_THRESHOLD: float = 0.3
+    RERANK_SCORE_THRESHOLD: float = 1
 
     GMAIL_CLIENT_ID: str
     GMAIL_CLIENT_SECRET: str
@@ -62,7 +62,7 @@ class Settings(BaseSettings):
     SEMANTIC_CACHE_THRESHOLD: float = 0.95
     SEMANTIC_CACHE_TTL: int = 86400
     
-    RERANK_SCORE_THRESHOLD: float = 0.3
+    RERANK_SCORE_THRESHOLD: float = 1
     SIMPLE_ROUTE_RELEVANCE_FLOOR: float = 0.3
     
     GM_EMAIL: str

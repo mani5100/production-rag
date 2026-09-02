@@ -9,6 +9,7 @@ from nxb_chatbot.api.ingest.model import IngestedDocument
 from nxb_chatbot.api.ingest.schema import DocumentResponse, IngestResponse
 from nxb_chatbot.core.config import settings
 from nxb_chatbot.ingestion.loaders import load_pdf
+from nxb_chatbot.ingestion.pipeline import _save_chunks_for_inspection
 from nxb_chatbot.ingestion.splitters import split_documents
 from nxb_chatbot.vector_store.qdrant_client import (
     compute_file_hash,
@@ -78,6 +79,8 @@ async def run_ingestion(db: AsyncSession) -> IngestResponse:
         try:
             documents = load_pdf(pdf_file)
             chunks = split_documents(documents)
+
+            _save_chunks_for_inspection(chunks, pdf_file)
 
             upsert_documents(chunks, pdf_file)
 

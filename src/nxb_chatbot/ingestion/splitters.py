@@ -101,9 +101,11 @@ def split_documents(documents: list[Document]) -> list[Document]:
 
         for segment in segments:
             base_metadata = {**doc.metadata, "has_table": segment["is_table"]}
-
+            doc_context = doc.metadata.get("doc_context", "")
             if segment["is_table"]:
                 cleaned_content = flatten_table(segment["content"])
+                if doc_context:
+                    cleaned_content = f"{doc_context}\n\n{cleaned_content}"
 
                 if is_boilerplate(cleaned_content):
                     dropped_boilerplate += 1
@@ -117,6 +119,8 @@ def split_documents(documents: list[Document]) -> list[Document]:
                 )
             else:
                 cleaned_content = clean_prose(segment["content"])
+                if doc_context:
+                    cleaned_content = f"{doc_context}\n\n{cleaned_content}"
 
                 if is_boilerplate(cleaned_content):
                     dropped_boilerplate += 1
